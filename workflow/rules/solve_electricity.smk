@@ -36,6 +36,9 @@ rule solve_network:
         "minimal"
     conda:
         "../envs/environment.yaml"
+    envmodules:
+        "python/3.9.0",
+        "gurobi/10.0.1_py39"
     script:
         "../scripts/subworkflows/pypsa-eur/scripts/solve_network.py"
 
