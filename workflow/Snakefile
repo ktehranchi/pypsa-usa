@@ -55,6 +55,7 @@ include: "rules/build_sector.smk"
 include: "rules/solve_electricity.smk"
 include: "rules/postprocess.smk"
 include: "rules/validate.smk"
+include: "rules/reliability.smk"
 
 
 if "E" not in config["scenario"]["sector"]:
@@ -73,11 +74,16 @@ else:
 
 rule all:
     input:
+        # expand(
+        #     RESULTS
+        #     + "{interconnect}/figures/cluster_{clusters}/l{ll}_{opts}_{sector}/{figure}.pdf",
+        #     **config["scenario"],
+        #     figure=COLLECT_FIGURES,
+        # ),
         expand(
             RESULTS
-            + "{interconnect}/figures/cluster_{clusters}/l{ll}_{opts}_{sector}/{figure}.pdf",
+            + "{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}/reliability_results.csv",
             **config["scenario"],
-            figure=COLLECT_FIGURES,
         ),
         "repo_data/dag.jpg",
 
