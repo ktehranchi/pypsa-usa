@@ -7,14 +7,14 @@ if config["run"]["reliability"]:
             network=RESOURCES
             + "{interconnect}/elec_s_{clusters}_ec_l{ll}_{opts}_{sector}.nc",
             config=RESULTS + "config.yaml",
-            copula_runs= "resources/reliability_hw/simulated_failure_times.csv"
+            copula_runs= "repo_data/reliability_hw/simulated_failure_times_theta_{theta}.csv"
         output:
-            samples = RESOURCES + "{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}/samples_s.csv",
+            samples = RESOURCES + "{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}/samples_s_{theta}.csv",
         threads: 1,
         resources:
             mem_mb = memory,
         log:
-            "logs/generate_scenarios/{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}.log",
+            "logs/generate_scenarios/{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}_{theta}.log",
         script:
             "../scripts/reliability/generate_scenarios.py"
 
@@ -24,14 +24,14 @@ if config["run"]["reliability"]:
         input: 
             network=RESOURCES
             + "{interconnect}/elec_s_{clusters}_ec_l{ll}_{opts}_{sector}.nc",
-            samples = RESOURCES + "{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}/samples_s.csv",
+            samples = RESOURCES + "{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}/samples_s_{theta}.csv",
         output:
-            operations_results_raw = RESOURCES + "{interconnect}/elec_s_{clusters}_ec_l{ll}_{opts}_{sector}/runs/run_{draw_number}.csv",
+            operations_results_raw = RESOURCES + "{interconnect}/elec_s_{clusters}_ec_l{ll}_{opts}_{sector}/runs/{theta}/run_{draw_number}.csv",
         threads: 8,
         resources:
             mem_mb = memory,
         log:
-            "logs/run_operations_model/{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}/draw{draw_number}.log",
+            "logs/run_operations_model/{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}/{theta}/draw{draw_number}.log",
         shell:
             '''
             # ml python/3.9.0
@@ -45,18 +45,19 @@ if config["run"]["reliability"]:
 
     rule compute_reliability_stats:
         input:
-            operations_results_raw = lambda wildcards: expand(RESOURCES + "{interconnect}/elec_s_{clusters}_ec_l{ll}_{opts}_{sector}/runs/run_{draw_number}.csv",
+            operations_results_raw = lambda wildcards: expand(RESOURCES + "{interconnect}/elec_s_{clusters}_ec_l{ll}_{opts}_{sector}/runs/{theta}/run_{draw_number}.csv",
                 draw_number=range(0, iterations),
                 interconnect=wildcards.interconnect,
                 clusters=wildcards.clusters,
                 ll=wildcards.ll,
                 opts=wildcards.opts,
                 sector=wildcards.sector,
+                theta=wildcards.theta,
                 ),
         output:
-            operations_results =RESULTS + "{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}/reliability_results.csv",
+            operations_results =RESULTS + "{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}/reliability_results_{theta}.csv",
         threads: 1,
         log:
-            "logs/combine_operations_results/{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}.log",
+            "logs/combine_operations_results/{interconnect}/c{clusters}_ec_l{ll}_{opts}_{sector}_{theta}.log",
         script:
             "../scripts/reliability/combine_runs.py"

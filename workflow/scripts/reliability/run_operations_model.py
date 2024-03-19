@@ -38,25 +38,26 @@ def update_network_data(n, sample):
     # Sample is a 1D array with the each entry storing the time to failure for each component
     # Assume each component experiences a drops to X% of generation capacity
     derate_pct = 0.0
-
-    # Let value = # of weeks to failure. convert to hours
-    hours_to_failure = (sample*24).astype(int)
+    n.loads_t.p_set = n.loads_t.p_set * 1.6
+    # Let value = # of hours to failure
+    hours_to_failure = (sample * 2).astype(int)
 
     #randomly choose from the lines
-    num_gens = 8
+    num_lines = 8
     # generators_ca = generators_ca.sample(num_gens, random_state=np_gen)
     #take largest p_nom
-    generators_ca = n.lines.nlargest(num_gens, 's_nom')
-    hours_to_failure.index = generators_ca.index
+    lines = n.lines.nlargest(num_lines, 's_nom')
+    hours_to_failure.index = lines.index
 
     # Derate the capacity of the generators
-    p_max_pu = pd.DataFrame(index=n.snapshots, columns=generators_ca.index)
-    for gen in generators_ca.index:
+    p_max_pu = pd.DataFrame(index=n.snapshots, columns=lines.index)
+    for gen in lines.index:
         rating = np.ones(len(n.snapshots))
-        rating[hours_to_failure[gen]:hours_to_failure[gen]+48] = derate_pct
+        rating[hours_to_failure[gen]:] = derate_pct
         p_max_pu[gen] = rating
 
     n.lines_t.s_max_pu = n.lines_t.s_max_pu.join(p_max_pu)
+
     return n
 
 if __name__ == "__main__":
