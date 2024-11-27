@@ -2,9 +2,7 @@ import logging
 import warnings
 from functools import reduce
 
-import dill as pickle
 import geopandas as gpd
-import linopy
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -345,7 +343,7 @@ def add_itls(buses, itls, itl_cost, expansion=True):
         itls["USD2023perMWyr"] = 0
 
     itls["p_min_pu_Rev"] = (-1 * (itls.mw_r0 / itls.mw_f0)).fillna(0)
-    itls['efficiency'] = 1- ((itls.length_miles/100) * 0.01)
+    itls["efficiency"] = 1 - ((itls.length_miles / 100) * 0.01)
 
     # lines to add in reverse if forward direction is zero
     itls_rev = itls[itls.mw_f0 == 0].copy()
@@ -363,7 +361,7 @@ def add_itls(buses, itls, itl_cost, expansion=True):
         length=0 if itl_cost is None else itls_fwd.length_miles.values,
         capital_cost=0 if itl_cost is None else itls_fwd.USD2023perMWyr.values,
         p_nom_extendable=False,
-        efficiency= 1 if itl_cost is None else itls_fwd.efficiency.values,
+        efficiency=1 if itl_cost is None else itls_fwd.efficiency.values,
         carrier="AC",
     )
 
@@ -380,7 +378,7 @@ def add_itls(buses, itls, itl_cost, expansion=True):
         length=0 if itl_cost is None else itls_rev.length_miles.values,
         capital_cost=0 if itl_cost is None else itls_rev.USD2023perMWyr.values,
         p_nom_extendable=False,
-        efficiency= 1 if itl_cost is None else itls_rev.efficiency.values,
+        efficiency=1 if itl_cost is None else itls_rev.efficiency.values,
         carrier="AC",
     )
 
@@ -401,7 +399,7 @@ def add_itls(buses, itls, itl_cost, expansion=True):
         length=0 if itl_cost is None else itls.length_miles.values,
         capital_cost=0 if itl_cost is None else itls.USD2023perMWyr.values,
         p_nom_extendable=False,
-        efficiency= 1 if itl_cost is None else itls.efficiency.values,
+        efficiency=1 if itl_cost is None else itls.efficiency.values,
         carrier="AC_exp",
     )
 
@@ -499,7 +497,7 @@ def convert_to_transport(
         itls = itls_filt
 
     clustering.network.add("Carrier", "AC_exp", co2_emissions=0)
-    logger.info(f"Replaced Lines with Links for zonal model configuration.")
+    logger.info("Replaced Lines with Links for zonal model configuration.")
 
     # Remove any disconnected buses
     unique_buses = buses.loc[itls.r].index.union(buses.loc[itls.rr].index).unique()
@@ -511,8 +509,14 @@ def convert_to_transport(
         )
 
     # Dissolve TX for particular zones according to default reeds configurations
-    clustering.network.links.loc[clustering.network.links.bus0.isin(['p119']) & clustering.network.links.bus1.isin(['p122']), 'p_nom'] = 1e9
-    clustering.network.links.loc[clustering.network.links.bus1.isin(['p119']) & clustering.network.links.bus0.isin(['p122']), 'p_nom'] = 1e9   
+    clustering.network.links.loc[
+        clustering.network.links.bus0.isin(["p119"]) & clustering.network.links.bus1.isin(["p122"]),
+        "p_nom",
+    ] = 1e9
+    clustering.network.links.loc[
+        clustering.network.links.bus1.isin(["p119"]) & clustering.network.links.bus0.isin(["p122"]),
+        "p_nom",
+    ] = 1e9
     # Dissolve p124 and p99
     if "p124" in clustering.network.buses.index and "p99" in clustering.network.buses.index:
         clustering.network.add(
@@ -631,8 +635,6 @@ if __name__ == "__main__":
             linemap,
         )
     else:
-        Nyears = n.snapshot_weightings.loc[n.investment_periods[0]].objective.sum() / 8760.0
-
         costs = pd.read_csv(snakemake.input.tech_costs)
         costs = costs.pivot(index="pypsa-name", columns="parameter", values="value")
         hvac_overhead_cost = costs.at["HVAC overhead", "annualized_capex_per_mw_km"]
@@ -656,30 +658,34 @@ if __name__ == "__main__":
             )
             match topological_boundaries:
                 case "reeds_zone":
-                    custom_busmap = n.buses.reeds_zone
+                    custom_busmap = n.buses.reeds_zone.copy()
                     itl_fn = snakemake.input.itl_reeds_zone
                     itl_cost_fn = snakemake.input.itl_costs_reeds_zone
                 case "county":
-                    custom_busmap = n.buses.county
+                    custom_busmap = n.buses.county.copy()
                     itl_fn = snakemake.input.itl_county
                     itl_cost_fn = snakemake.input.itl_costs_county
                 case _:
                     raise ValueError(f"Unknown aggregation zone {topological_boundaries}")
 
             if topology_aggregation:
-                for key, value in topology_aggregation.items():
-                    agg_busmap = n.buses[key][n.buses[key].isin(value)]
-                    logger.info(f"Aggregating {agg_busmap.unique()} {key} zones.")
-                    custom_busmap.update(agg_busmap)
-                    n.buses.loc[agg_busmap.index, "country"] = agg_busmap
-                    if key == "trans_grp":
-                        n.buses.loc[agg_busmap.index, "reeds_zone"] = "na"
-                        n.buses.loc[agg_busmap.index, "reeds_ba"] = "na"
-                        n.buses.loc[agg_busmap.index, "reeds_state"] = "na"
-                    itl_agg_fn = snakemake.input[f"itl_{key}"]
-                    itl_agg_costs_fn = snakemake.input.get(f"itl_costs_{key}", None)
+                assert isinstance(topology_aggregation, dict), "topology_aggregation must be a dictionary."
+                assert len(topology_aggregation) == 1, "topology_aggregation must contain exactly one key."
 
-            logger.info(f"Using Transport Model.")
+                # Extract the single key and value
+                key, value = next(iter(topology_aggregation.items()))
+                agg_busmap = n.buses[key][n.buses[key].isin(value)]
+                logger.info(f"Aggregating {agg_busmap.unique()} {key} zones.")
+                custom_busmap.update(agg_busmap.copy())
+                n.buses.loc[agg_busmap.index, "country"] = agg_busmap
+                if key == "trans_grp":
+                    n.buses.loc[agg_busmap.index, "reeds_zone"] = "na"
+                    n.buses.loc[agg_busmap.index, "reeds_ba"] = "na"
+                    n.buses.loc[agg_busmap.index, "reeds_state"] = "na"
+                itl_agg_fn = snakemake.input[f"itl_{key}"]
+                itl_agg_costs_fn = snakemake.input.get(f"itl_costs_{key}", None)
+
+            logger.info("Using Transport Model.")
             nodes_req = custom_busmap.unique()
 
             assert n_clusters == len(
