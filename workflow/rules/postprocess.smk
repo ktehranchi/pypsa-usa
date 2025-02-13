@@ -82,8 +82,10 @@ rule plot_statistics:
         },
         statistics_summary=RESULTS
         + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/statistics.csv",
-        statistics_dissaggregated=RESULTS
-        + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/statistics_dissaggregated.csv",
+        statistics_dissaggregated_name_bus_carrier=RESULTS
+        + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/statistics_dissaggregated_name_bus_carrier.csv",
+        statistics_dissaggregated_bus_carrier=RESULTS
+        + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/statistics_dissaggregated_bus_carrier.csv",
         generators=RESULTS
         + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/generators.csv",
         storage_units=RESULTS

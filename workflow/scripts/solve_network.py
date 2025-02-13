@@ -345,6 +345,27 @@ def add_technology_capacity_target_constraints(n, config):
                 f"Max Value Adj: {rhs}",
             )
 
+        if not np.isnan(target["equals"]):
+            assert (
+                target["equals"] >= lhs_existing
+            ), f"TCT constraint of {target['equals']} MW for {target['carrier']} must be >= {lhs_existing}"
+            rhs = target["equals"] - round(lhs_existing, 2)
+
+            n.model.add_constraints(
+                lhs <= rhs,
+                name=f"GlobalConstraint-{target.name}_{target.planning_horizon}_equals",
+            )
+
+            logger.info(
+                "Adding TCT Constraint:\n"
+                f"Name: {target.name}\n"
+                f"Planning Horizon: {target.planning_horizon}\n"
+                f"Region: {target.region}\n"
+                f"Carrier: {target.carrier}\n"
+                f"Max Value: {target['max']}\n"
+                f"Max Value Adj: {rhs}",
+            )
+
 
 def add_RPS_constraints(n, config):
     """
@@ -1509,6 +1530,15 @@ def add_sector_demand_response_constraints(n, config):
             _apply_constraint(n, sector, dr_config)
 
 
+def remove_kvl(n):
+    """
+    Removes Kirchhoff's voltage law (KVL) constraints.
+
+    Function implemented for Kamran's research, and not added to default configs.
+    """
+    n.model.constraints.remove("Kirchhoff-Voltage-Law")
+
+
 def extra_functionality(n, snapshots):
     """
     Collects supplementary constraints which will be passed to
@@ -1542,6 +1572,8 @@ def extra_functionality(n, snapshots):
     if dr_config:
         sector = True if "sector" in opts else False
         add_demand_response_constraint(n, config, sector)
+    if config.get("solving", {}).get("options", {}).get("remove_kvl", False):
+        remove_kvl(n)
     if "sector" in opts:
         add_cooling_heat_pump_constraints(n, config)
         if not config["sector"]["service_sector"].get("split_urban_rural", False):

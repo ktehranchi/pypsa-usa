@@ -938,7 +938,10 @@ if __name__ == "__main__":
     # Export Statistics Tables
     groupers = n.statistics.groupers
     n.statistics(groupby=groupers.get_name_bus_and_carrier).round(3).to_csv(
-        snakemake.output.statistics_dissaggregated,
+        snakemake.output.statistics_dissaggregated_name_bus_carrier,
+    )
+    n.statistics(groupby=groupers.get_bus_and_carrier).round(3).to_csv(
+        snakemake.output.statistics_dissaggregated_bus_carrier,
     )
     n.statistics().round(2).to_csv(snakemake.output.statistics_summary)
     n.generators.to_csv(snakemake.output.generators)

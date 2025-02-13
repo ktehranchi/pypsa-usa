@@ -8,10 +8,9 @@ def pop_layout_input(wildcards):
         return []
 
 
-if not config.get("iterative_solving"):
-    breakpoint()
+if config.get("iterative_solving") is not None:
 
-    rule solve_network:
+    rule solve_network_iterative:
         params:
             solving=config_provider("solving"),
             foresight=config_provider("foresight"),
@@ -23,8 +22,7 @@ if not config.get("iterative_solving"):
                 "model_topology", "transmission_network"
             ),
         input:
-            network=RESOURCES
-            + "{interconnect}/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}_{sector}.nc",
+            network=config_provider("iterative_solving", "network_path"),
             flowgates="repo_data/ReEDS_Constraints/transmission/transmission_capacity_init_AC_ba_NARIS2024.csv",
             safer_reeds="config/policy_constraints/reeds/prm_annual.csv",
             rps_reeds="config/policy_constraints/reeds/rps_fraction.csv",
@@ -35,6 +33,8 @@ if not config.get("iterative_solving"):
             + "{interconnect}/networks/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}_{sector}.nc",
             config=RESULTS
             + "{interconnect}/configs/config.elec_s{simpl}_c{clusters}_l{ll}_{opts}_{sector}.yaml",
+            iterative_metrics=RESULTS
+            + "{interconnect}/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}_{sector}iterative_metrics.csv",
         log:
             solver=normpath(
                 LOGS
@@ -56,4 +56,4 @@ if not config.get("iterative_solving"):
         conda:
             "../envs/environment.yaml"
         script:
-            "../scripts/solve_network.py"
+            "../scripts/solve_network_iterative.py"
