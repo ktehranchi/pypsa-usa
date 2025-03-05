@@ -794,84 +794,70 @@ def solve_network(n, config, solving, opts="", **kwargs):
 def solve_network_iterative(n, config, solving, opts="", **kwargs):
     """
     Iteratively solves the network alternating between Generation Expansion and
-      Transmission Expansion.
-
+    Transmission Expansion.
     """
     logger.info("Solving network iteratively")
     metrics = []
 
-    # Remove load shedding
+    # Remove load shedding and global constraints
     load_shedding_gens = n.generators.query("carrier == 'load'")
     if not load_shedding_gens.empty:
         n.mremove("Generator", load_shedding_gens.index)
-
-    # Delete all global constraints
     n.global_constraints.drop(n.global_constraints.index, inplace=True)
 
+    # Set minimum capacities
     n.lines.s_nom_min = n.lines.s_nom
     n.links.p_nom_min = n.links.p_nom
 
+    def track_metrics(iter_num, expansion_type):
+        """Helper function to collect metrics at each iteration."""
+        carrier_sums = {
+            carrier: n.generators.query(f"carrier == '{carrier}'").p_nom.sum()
+            for carrier in ["CCGT", "OCGT", "onwind", "offwind", "solar", "hydrogen_ct"]
+        }
+
+        return {
+            "iteration": iter_num,
+            "expansion_type": expansion_type,
+            "total_cost": n.objective,
+            "total_gen": n.generators.p_nom.sum(),
+            "total_storage": n.storage_units.p_nom.sum(),
+            "total_lines": n.lines.s_nom.sum(),
+            "total_links": n.links.p_nom.sum(),
+            **carrier_sums,
+        }
+
     for iter_ in range(1, config["iterative_solving"]["max_iter"] + 1):
         logger.info(f"Iteration {iter_}")
-        # Transmission Expansion
-        # Take Initialization of p_nom_opts and set as p_nom
+
+        # Transmission Expansion step
         n.generators.p_nom = n.generators.p_nom_opt
         n.storage_units.p_nom = n.storage_units.p_nom_opt
 
-        # Fix p_nom of generators and storage devices
+        # Fix generation, allow transmission expansion
         n.generators.p_nom_extendable = False
         n.storage_units.p_nom_extendable = False
-
         n.lines.s_nom_extendable = True
         n.links.p_nom_extendable = True
-
         n.lines.s_nom_max = 1e8
         n.links.p_nom_max = 1e8
 
         n = solve_network(n, config, solving, opts, **kwargs)
+        metrics.append(track_metrics(iter_, "Transmission"))
 
-        # Track key metrics
-        metrics.append(
-            {
-                "iteration": iter_,
-                "expansion_type": "Transmission",
-                "total_cost": n.objective,
-                "total_gen": n.generators.p_nom.sum(),
-                "total_storage": n.storage_units.p_nom.sum(),
-                "total_lines": n.lines.s_nom.sum(),
-                "total_links": n.links.p_nom.sum(),
-            },
-        )
-
-        # Generation Expansion
+        # Generation Expansion step
+        # Fix transmission, allow generation expansion
         n.generators.p_nom_extendable = True
         n.storage_units.p_nom_extendable = True
-
-        # Fix p_nom of lines and links
         n.lines.s_nom_extendable = False
-        n.links.s_nom_extendable = False
-
+        n.links.p_nom_extendable = False
         n.lines.s_nom = n.lines.s_nom_opt
         n.links.p_nom = n.links.p_nom_opt
 
         n = solve_network(n, config, solving, opts, **kwargs)
+        metrics.append(track_metrics(iter_, "Generation"))
 
-        # Track key metrics
-        metrics.append(
-            {
-                "iteration": iter_,
-                "expansion_type": "Generation",
-                "total_cost": n.objective,
-                "total_gen": n.generators.p_nom.sum(),
-                "total_storage": n.storage_units.p_nom.sum(),
-                "total_lines": n.lines.s_nom.sum(),
-                "total_links": n.links.p_nom.sum(),
-            },
-        )
-
-    metrics_df = pd.DataFrame(metrics)
-
-    return n, metrics_df
+    return n, pd.DataFrame(metrics)
 
 
 if __name__ == "__main__":
