@@ -1,4 +1,3 @@
-# ruff: noqa: D101, D102
 """Plots Sector Coupling Statistics."""
 
 import logging
@@ -7,7 +6,9 @@ from dataclasses import dataclass
 from enum import Enum
 from math import ceil
 from pathlib import Path
-from typing import Any
+
+# Optional used as 'arg: callable | None = None' gives TypeError with py3.11
+from typing import Any, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -153,7 +154,7 @@ def plot_sector_production_timeseries(
     nice_name: bool | None = True,
     remove_sns_weights: bool = True,
     resample: str | None = None,
-    resample_fn: callable | None = None,
+    resample_fn: Optional[callable] = None,  # noqa: UP007
     month: int | None = None,
     **kwargs,
 ) -> tuple:
@@ -228,7 +229,7 @@ def plot_transportation_production_timeseries(
     nice_name: bool | None = True,
     remove_sns_weights: bool = True,
     resample: str | None = None,
-    resample_fn: callable | None = None,
+    resample_fn: Optional[callable] = None,  # noqa: UP007
     month: int | None = None,
     **kwargs,
 ) -> tuple:
@@ -643,6 +644,10 @@ def plot_capacity_brownfield(
     for row, _ in enumerate(investment_periods):
         df = get_capacity_per_node(n, sector, state)
 
+        if df.empty:
+            logger.warning(f"No data to plot for {state}")
+            return fig, axs
+
         if nice_name:
             nn = n.carriers.nice_name.to_dict()
             df.index = df.index.map(lambda x: (x[0], nn[x[1]]))
@@ -964,7 +969,7 @@ def plot_sector_dr_timeseries(
     state: str | None = None,
     nice_name: bool | None = True,
     resample: str | None = None,
-    resample_fn: callable | None = None,
+    resample_fn: Optional[callable] = None,  # noqa: UP007
     month: int | None = None,
     **kwargs,
 ) -> tuple:
@@ -1051,6 +1056,10 @@ def plot_consumption(
     y_label = "Energy (MWh)"
 
     df_all = get_end_use_consumption(n, sector, state)
+
+    if df_all.empty:
+        logger.warning(f"No data to plot for {state}")
+        return fig, axs
 
     for row, period in enumerate(investment_periods):
         df = df_all.loc[period]
@@ -1143,6 +1152,8 @@ def save_fig(
 
 @dataclass
 class PlottingData:
+    """Describe data to plot."""
+
     name: str  # snakemake name
     fn: callable
     sector: str | None = None  # None = 'system'
@@ -1469,12 +1480,12 @@ if __name__ == "__main__":
     if "snakemake" not in globals():
         snakemake = mock_snakemake(
             "plot_sector_production",
-            simpl="70",
-            opts="3h-TCT",
-            clusters="4m",
+            simpl="132",
+            opts="3h",
+            clusters="33m",
             ll="v1.0",
             sector="E-G",
-            planning_horizons="2030",
+            planning_horizons="2018",
             interconnect="western",
         )
         rootpath = ".."

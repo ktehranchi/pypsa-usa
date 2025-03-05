@@ -1,5 +1,3 @@
-# ruff: noqa: RUF012, D101, D102, F811
-
 """Builds the demand data for the PyPSA network."""
 
 # snakemake is not liking this futures import. Removing type hints in context class
@@ -7,11 +5,10 @@
 
 import calendar
 import logging
-import sqlite3
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import constants as const
 import duckdb
@@ -56,7 +53,7 @@ class Context:
         return self._write_strategy
 
     @write_strategy.setter
-    def strategy(self, strategy) -> None:  # arg is WriteStrategy
+    def strategy(self, strategy) -> None:  # arg is WriteStrategy  # noqa: F811
         """Usually, the Context allows replacing a Strategy object at runtime."""
         self._write_strategy = strategy
 
@@ -149,7 +146,7 @@ class ReadStrategy(ABC):
         self.filepath = filepath
 
     @property
-    def units():
+    def units():  # noqa: D102
         return "MW"
 
     @abstractmethod
@@ -230,7 +227,7 @@ class ReadEia(ReadStrategy):
         self._zone = "ba"
 
     @property
-    def zone(self):
+    def zone(self):  # noqa: D102
         return self._zone
 
     def _read_data(self) -> pd.DataFrame:
@@ -282,7 +279,7 @@ class ReadFERC714(ReadStrategy):
         self._zone = "state"
 
     @property
-    def zone(self):
+    def zone(self):  # noqa: D102
         return self._zone
 
     def _read_data(self) -> pd.DataFrame:
@@ -295,26 +292,21 @@ class ReadFERC714(ReadStrategy):
         return pd.read_parquet(self.filepath[0], dtype_backend="pyarrow")
 
     def _read_census_data(self) -> pd.DataFrame:
-        """Reads in census data for population weighting."""
+        """Reads in census data for population weighting using parquet."""
         duckdb.connect(database=":memory:", read_only=False)
+        duckdb.query("INSTALL httpfs;")
 
-        duckdb.query("INSTALL sqlite;")
-        duckdb.query(
-            f"""
-            ATTACH '{self.filepath[1]}' (TYPE SQLITE);
-            """,
-        )
+        parquet_path = snakemake.params.pudl_path
 
-        sql = """
+        sql = f"""
         SELECT
         stusps10 as state_abbr,
         geoid10 as state_id_fips,
         name10 as state_name,
         shape as geom
-        FROM
-        censusdp1tract.state_2010census_dp1;
+        FROM read_parquet('{parquet_path}/censusdp1tract.state_2010census_dp1.parquet');
         """
-        # df = duckdb.query(sql).to_df()
+
         states = (
             gpd.read_postgis(sql, duckdb, crs="EPSG:4326")
             .convert_dtypes()
@@ -359,7 +351,7 @@ class ReadEfs(ReadStrategy):
         self._zone = "state"
 
     @property
-    def zone(self):
+    def zone(self):  # noqa: D102
         return self._zone
 
     def _read_data(self) -> pd.DataFrame:
@@ -500,11 +492,12 @@ class ReadEulp(ReadStrategy):
         self._zone = "state"
 
     @property
-    def zone(self):
+    def zone(self):  # noqa: D102
         return self._zone
 
     @property
     def stock(self):
+        """Data is from ResStock or ComStock."""
         if self._stock == "res":
             return "residential"
         elif self._stock == "com":
@@ -619,7 +612,7 @@ class ReadCliu(ReadStrategy):
     # MAIN -> MRO
     # MAPP -> SPP and some MRO
     # WSCC -> WECC (but left seperate here)
-    EPRI_NERC_2_STATE = {
+    EPRI_NERC_2_STATE: ClassVar[dict[str, list[str]]] = {
         "ECAR": ["IL", "IN", "KY", "MI", "OH", "WI", "WV"],
         "ERCOT": ["TX"],
         "MAAC": ["MD"],
@@ -636,12 +629,12 @@ class ReadCliu(ReadStrategy):
     }
 
     # https://www.epri.com/research/products/000000003002018167
-    EPRI_SEASON_2_MONTH = {
+    EPRI_SEASON_2_MONTH: ClassVar[dict[str, list[int]]] = {
         "Peak": [5, 6, 7, 8, 9],  # may -> sept
         "OffPeak": [1, 2, 3, 4, 10, 11, 12],  # oct -> april
     }
 
-    EPRI_ENDUSE = {
+    EPRI_ENDUSE: ClassVar[dict[str, str]] = {
         "HVAC": "electricity",
         "Lighting": "electricity",
         "MachineDrives": "electricity",
@@ -664,7 +657,7 @@ class ReadCliu(ReadStrategy):
         self._zone = "state"
 
     @property
-    def zone(self):
+    def zone(self):  # noqa: D102
         return self._zone
 
     def _read_data(self) -> Any:
@@ -1070,7 +1063,7 @@ class ReadTransportEfsAeo(ReadStrategy):
     """
 
     # TODO: extract this out directly from EFS
-    efs_years = [2018, 2020, 2022, 2024, 2030, 2040, 2050]
+    efs_years: ClassVar[list[int]] = [2018, 2020, 2022, 2024, 2030, 2040, 2050]
 
     def __init__(self, filepath: str, api: str, efs_path: str) -> None:
         """Filepath is state level breakdown of VMT by vehicle type."""
@@ -1085,7 +1078,7 @@ class ReadTransportEfsAeo(ReadStrategy):
         self.efs_profile = self._read_efs_data()
 
     @property
-    def zone(self):
+    def zone(self):  # noqa: D102
         return self._zone
 
     @staticmethod
@@ -1313,13 +1306,13 @@ class ReadTransportAeo(ReadStrategy):
     """
 
     # scales units so demand magnitudes are consistent
-    unit_scaler = {
+    unit_scaler: ClassVar[dict[str, int | float]] = {
         "air": 1000000,
         "boat_shipping": 1000000,
         "rail_shipping": 1000000,
         "rail_passenger": 1000000,
     }
-    unit_scaler_name = {
+    unit_scaler_name: ClassVar[dict[str, list[str]]] = {
         "air": ["billion", "thousand"],
         "boat_shipping": ["billion", "thousand"],
         "rail_shipping": ["billion", "thousand"],
@@ -1345,7 +1338,7 @@ class ReadTransportAeo(ReadStrategy):
         self.aeo_demand = self._read_demand_aeo()
 
     @property
-    def zone(self):
+    def zone(self):  # noqa: D102
         return self._zone
 
     @staticmethod
@@ -1908,11 +1901,14 @@ class DemandFormatter:
         return False
 
     def assign_scaler(self):  # type DemandScaler
+        """Assign logic to scale demand with."""
         if self.scaling_method == "aeo_energy":
             assert self.api, "Must provide eia api key"
             return AeoEnergyScaler(self.api)
         elif self.scaling_method == "aeo_electricity":
-            assert self.filepath.endswith(".sqlite"), "Must provide pudl.sqlite file"
+            assert self.filepath.startswith(
+                "s3://pudl.catalyst.coop/",
+            ), "Must provide pudl S3 URL (s3://pudl.catalyst.coop/...)"
             return AeoElectricityScaler(self.filepath)
         elif self.scaling_method == "efs":
             assert self.filepath.endswith(".csv"), "Must provide EFS.csv data"
@@ -1925,11 +1921,14 @@ class DemandFormatter:
 
 
 class DemandScaler(ABC):
+    """Allow the scaling of input data bases on different energy projections."""
+
     def __init__(self):
         self.projection = self.get_projections()
 
     @abstractmethod
     def get_projections(self) -> pd.DataFrame:
+        """Get implementation specific energy projections."""
         pass
 
     def get_growth(self, start_year: int, end_year: int, sector: str) -> float:
@@ -1990,15 +1989,17 @@ class DemandScaler(ABC):
 
 
 class AeoElectricityScaler(DemandScaler):
-    def __init__(self, pudl: str, scenario: str = "reference"):
-        self.pudl = pudl
+    """Scales against EIA Annual Energy Outlook electricity projections."""
+
+    def __init__(self, pudl_path: str, scenario: str = "reference"):
+        self.pudl_path = pudl_path
         self.scenario = scenario
         self.region = "united_states"
         super().__init__()
 
     def get_projections(self) -> pd.DataFrame:
         """
-        Get sector yearly END-USE ELECTRICITY growth rates from AEO.
+        Get sector yearly END-USE ELECTRICITY growth rates from AEO using parquet files.
 
         |      | power | units |
         |----- |-------|-------|
@@ -2009,35 +2010,35 @@ class AeoElectricityScaler(DemandScaler):
         | 2049 |  ###  |  ###  |
         | 2050 |  ###  |  ###  |
         """
-        con = sqlite3.connect(self.pudl)
-        df = pd.read_sql_query(
-            f"""
+        duckdb.connect(database=":memory:", read_only=False)
+        duckdb.query("INSTALL httpfs;")
+
+        query = f"""
         SELECT
-        projection_year,
-        technology_description_eiaaeo,
-        gross_generation_mwh
-        FROM
-        core_eiaaeo__yearly_projected_generation_in_electric_sector_by_technology
-        WHERE
-        electricity_market_module_region_eiaaeo = "{self.region}" AND
-        model_case_eiaaeo = "{self.scenario}"
-        """,
-            con,
-        )
+            projection_year,
+            gross_generation_mwh
+        FROM read_parquet('{self.pudl_path}/core_eiaaeo__yearly_projected_generation_in_electric_sector_by_technology.parquet')
+        WHERE electricity_market_module_region_eiaaeo = '{self.region}'
+        AND model_case_eiaaeo = '{self.scenario}'
+        """
+
+        df = duckdb.query(query).to_df()
 
         df = (
-            df.drop(columns=["technology_description_eiaaeo"])
-            .rename(
+            df.rename(
                 columns={"projection_year": "year", "gross_generation_mwh": "power"},
             )
             .groupby("year")
             .sum()
         )
+
         df["units"] = "mwh"
         return df
 
 
 class AeoEnergyScaler(DemandScaler):
+    """Scales against EIA Annual Energy Outlook energy projections."""
+
     def __init__(self, api: str, scenario: str = "reference"):
         self.api = api
         self.scenario = scenario
@@ -2093,6 +2094,8 @@ class AeoEnergyScaler(DemandScaler):
 
 
 class AeoVmtScaler(DemandScaler):
+    """Scales against EIA Annual Energy Outlook vehicle mile traveled projections."""
+
     def __init__(self, api: str, scenario: str = "reference"):
         self.api = api
         self.scenario = scenario
@@ -2159,12 +2162,15 @@ class AeoVmtScaler(DemandScaler):
 
 
 class EfsElectricityScalar(DemandScaler):
+    """Scales against NREL Electrification Futures Study electricity projections."""
+
     def __init__(self, filepath: str):
         self.efs = filepath
         self.region = "united_states"
         super().__init__()
 
     def read(self) -> pd.DataFrame:
+        """Read in raw EFS data."""
         df = pd.read_csv(self.efs, engine="pyarrow")
         return (
             df.drop(
