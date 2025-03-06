@@ -791,7 +791,7 @@ def add_SAFE_constraints(n, config):
     n.model.add_constraints(lhs >= rhs, name="safe_mintotalcap")
 
 
-def add_SAFER_constraints(n, config):
+def add_PRM_constraints(n, config):
     """
     Add a capacity reserve margin of a certain fraction above the peak demand
     for regions defined in configuration file. Renewable generators and storage
@@ -822,36 +822,49 @@ def add_SAFER_constraints(n, config):
     regional_prm = pd.concat([regional_prm, reeds_prm])
     regional_prm = regional_prm[regional_prm.planning_horizon.isin(snakemake.params.planning_horizons)]
 
-    for idx, prm in regional_prm.iterrows():
+    for _, prm in regional_prm.iterrows():
         region_list = [region_.strip() for region_ in prm.region.split(",")]
         region_buses = get_region_buses(n, region_list)
 
         if region_buses.empty:
             continue
 
-        peakdemand = (
-            n.loads_t.p_set.loc[
-                prm.planning_horizon,
-                n.loads.bus.isin(region_buses.index),
-            ]
-            .sum(axis=1)
-            .max()
-        )
-        margin = 1.0 + prm.prm
-        planning_reserve = peakdemand * margin
+        region_load = n.loads_t.p_set.loc[prm.planning_horizon, n.loads.bus.isin(region_buses.index)].sum(axis=1)
+        peak_demand_hour = region_load.idxmax()
+        peak_demand = region_load.loc[peak_demand_hour]
 
-        region_gens = n.generators[n.generators.bus.isin(region_buses.index)]
-        ext_gens_i = region_gens.query(
-            "carrier in @conventional_carriers & p_nom_extendable",
-        ).index
-        p_nom = n.model["Generator-p_nom"].loc[ext_gens_i]
-        lhs = p_nom.sum()
-        exist_conv_caps = region_gens.query(
-            "~p_nom_extendable & carrier in @conventional_carriers",
-        ).p_nom.sum()
-        rhs = planning_reserve - exist_conv_caps
+        margin = 1.0 + prm.prm
+        planning_reserve = peak_demand * margin
+
+        active_gens = n.get_active_assets("Generator", prm.planning_horizon)
+        extendable_gens = n.generators.p_nom_extendable
+        region_gens = n.generators.bus.isin(region_buses.index)
+
+        # Extendable capacity that can extend to contribute to PRM
+        region_active_ext_gens = region_gens & active_gens & extendable_gens
+        region_active_ext_gens = n.generators[region_active_ext_gens]
+        ext_p_nom = n.model["Generator-p_nom"].loc[region_active_ext_gens.index]
+        ext_p_max_pu = get_as_dense(n, "Generator", "p_max_pu", inds=region_active_ext_gens.index).loc[
+            2050,
+            peak_demand_hour,
+        ]
+        ext_p_nom_acrd = ext_p_nom * ext_p_max_pu
+
+        # Existing non-extensible capacity that can contribute to PRM
+        region_active_nonext_gens = region_gens & active_gens & ~extendable_gens
+        region_active_nonext_gens = n.generators[region_active_nonext_gens]
+        non_ext_p_max_pu = get_as_dense(n, "Generator", "p_max_pu", inds=region_active_nonext_gens.index).loc[
+            2050,
+            peak_demand_hour,
+        ]
+        non_ext_p_nom = region_active_nonext_gens.p_nom
+        non_ext_p_nom_acrd = non_ext_p_nom * non_ext_p_max_pu
+
+        # Define LHS
+        lhs = ext_p_nom_acrd.sum() + non_ext_p_nom_acrd.sum()
+
         n.model.add_constraints(
-            lhs >= rhs,
+            lhs >= planning_reserve,
             name=f"GlobalConstraint-{prm.name}_{prm.planning_horizon}_PRM",
         )
 
@@ -1558,8 +1571,8 @@ def extra_functionality(n, snapshots):
         add_BAU_constraints(n, config)
     if "SAFE" in opts and n.generators.p_nom_extendable.any():
         add_SAFE_constraints(n, config)
-    if "SAFER" in opts and n.generators.p_nom_extendable.any():
-        add_SAFER_constraints(n, config)
+    if "PRM" in opts and n.generators.p_nom_extendable.any():
+        add_PRM_constraints(n, config)
     if "TCT" in opts and n.generators.p_nom_extendable.any():
         add_technology_capacity_target_constraints(n, config)
     reserve = config["electricity"].get("operational_reserve", {})
