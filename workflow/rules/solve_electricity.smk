@@ -9,7 +9,6 @@ def pop_layout_input(wildcards):
 
 
 if not config.get("iterative_solving"):
-    breakpoint()
 
     rule solve_network:
         params:

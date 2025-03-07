@@ -320,6 +320,24 @@ def add_technology_capacity_target_constraints(n, config):
                 f"Max Value Adj: {rhs}",
             )
 
+        if not np.isnan(target["equals"]):
+            rhs = target["equals"] - round(lhs_existing, 2)
+
+            n.model.add_constraints(
+                lhs <= rhs,
+                name=f"GlobalConstraint-{target.name}_{target.planning_horizon}_equals",
+            )
+
+            logger.info(
+                "Adding TCT Constraint:\n"
+                f"Name: {target.name}\n"
+                f"Planning Horizon: {target.planning_horizon}\n"
+                f"Region: {target.region}\n"
+                f"Carrier: {target.carrier}\n"
+                f"Max Value: {target['max']}\n"
+                f"Max Value Adj: {rhs}",
+            )
+
 
 def add_RPS_constraints(n, config):
     """
@@ -723,7 +741,6 @@ def extra_functionality(n, snapshots):
         add_RPS_constraints(n, config)
     if "REM" in opts and n.generators.p_nom_extendable.any():
         add_regional_co2limit(n, snapshots, config)
-
     if "SAFE" in opts and n.generators.p_nom_extendable.any():
         add_SAFE_constraints(n, config)
     if "SAFER" in opts and n.generators.p_nom_extendable.any():
@@ -794,84 +811,98 @@ def solve_network(n, config, solving, opts="", **kwargs):
 def solve_network_iterative(n, config, solving, opts="", **kwargs):
     """
     Iteratively solves the network alternating between Generation Expansion and
-      Transmission Expansion.
-
+    Transmission Expansion.
     """
     logger.info("Solving network iteratively")
     metrics = []
 
-    # Remove load shedding
+    # Remove load shedding and global constraints
     load_shedding_gens = n.generators.query("carrier == 'load'")
     if not load_shedding_gens.empty:
         n.mremove("Generator", load_shedding_gens.index)
-
-    # Delete all global constraints
     n.global_constraints.drop(n.global_constraints.index, inplace=True)
 
+    gens_extensible_mask = n.generators.p_nom_extendable
+    storage_extensible_mask = n.storage_units.p_nom_extendable
+    links_extensible_mask = n.links.p_nom_extendable
+
+    # Set minimum capacities
     n.lines.s_nom_min = n.lines.s_nom
     n.links.p_nom_min = n.links.p_nom
 
+    def track_metrics(iter_num, expansion_type):
+        """Helper function to collect metrics at each iteration."""
+        # Get optimal capacity statistics
+        capacity_stats = n.statistics.optimal_capacity()
+        capacity_stats = capacity_stats.droplevel(0)
+        capacity_stats.fillna(0, inplace=True)
+
+        # Create a dictionary for the metrics
+        return {
+            "iteration": iter_num,
+            "expansion_type": expansion_type,
+            "total_cost": n.objective,
+            "total_gen": n.generators.p_nom.sum(),
+            # unpack the capacity_stats dictionary
+            **capacity_stats[n.investment_periods[0]].to_dict(),
+        }
+
+    new_metrics = track_metrics(0, "Base")
+    metrics.append(new_metrics)
+    logger.info(f"New Metrics: {new_metrics}")
+
     for iter_ in range(1, config["iterative_solving"]["max_iter"] + 1):
-        logger.info(f"Iteration {iter_}")
-        # Transmission Expansion
-        # Take Initialization of p_nom_opts and set as p_nom
+        logger.info(f"SOLUTION ITERATION {iter_}")
+        logger.info("Transmission Expansion")
+        # Transmission Expansion step
         n.generators.p_nom = n.generators.p_nom_opt
         n.storage_units.p_nom = n.storage_units.p_nom_opt
 
-        # Fix p_nom of generators and storage devices
+        # Fix generation, allow transmission expansion
         n.generators.p_nom_extendable = False
         n.storage_units.p_nom_extendable = False
 
         n.lines.s_nom_extendable = True
-        n.links.p_nom_extendable = True
+        n.links.p_nom_extendable = links_extensible_mask
 
         n.lines.s_nom_max = 1e8
         n.links.p_nom_max = 1e8
 
         n = solve_network(n, config, solving, opts, **kwargs)
+        new_metrics = track_metrics(iter_, "Transmission")
+        metrics.append(new_metrics)
+        logger.info(f"New Metrics: {new_metrics}")
 
-        # Track key metrics
-        metrics.append(
-            {
-                "iteration": iter_,
-                "expansion_type": "Transmission",
-                "total_cost": n.objective,
-                "total_gen": n.generators.p_nom.sum(),
-                "total_storage": n.storage_units.p_nom.sum(),
-                "total_lines": n.lines.s_nom.sum(),
-                "total_links": n.links.p_nom.sum(),
-            },
-        )
+        if config["iterative_solving"]["TEP_only"]:
+            continue
 
-        # Generation Expansion
-        n.generators.p_nom_extendable = True
-        n.storage_units.p_nom_extendable = True
-
-        # Fix p_nom of lines and links
-        n.lines.s_nom_extendable = False
-        n.links.s_nom_extendable = False
-
+        # Generation Expansion step
+        logger.info("Generation Expansion")
+        # Fix transmission, allow generation expansion
         n.lines.s_nom = n.lines.s_nom_opt
         n.links.p_nom = n.links.p_nom_opt
+        n.lines.s_nom_extendable = False
+        n.links.p_nom_extendable = False
+
+        n.generators.p_nom_extendable = gens_extensible_mask
+        n.storage_units.p_nom_extendable = storage_extensible_mask
 
         n = solve_network(n, config, solving, opts, **kwargs)
+        new_metrics = track_metrics(iter_, "Generation")
+        metrics.append(new_metrics)
+        logger.info(f"New Metrics: {new_metrics}")
 
-        # Track key metrics
-        metrics.append(
-            {
-                "iteration": iter_,
-                "expansion_type": "Generation",
-                "total_cost": n.objective,
-                "total_gen": n.generators.p_nom.sum(),
-                "total_storage": n.storage_units.p_nom.sum(),
-                "total_lines": n.lines.s_nom.sum(),
-                "total_links": n.links.p_nom.sum(),
-            },
-        )
+        # Define the stopping criteria
+        if iter_ > 1:
+            if np.allclose(
+                metrics[-1]["total_cost"],
+                metrics[-2]["total_cost"],
+                rtol=config["iterative_solving"]["rtol"],
+            ):
+                logger.info("Convergence reached.")
+                break
 
-    metrics_df = pd.DataFrame(metrics)
-
-    return n, metrics_df
+    return n, pd.DataFrame(metrics)
 
 
 if __name__ == "__main__":
