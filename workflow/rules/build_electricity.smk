@@ -712,6 +712,7 @@ rule cluster_network:
         "benchmarks/cluster_network/{interconnect}/elec_s{simpl}_c{clusters}"
     threads: 1
     resources:
+        walltime= config_provider("walltime","cluster_network"),
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     script:
         "../scripts/cluster_network.py"

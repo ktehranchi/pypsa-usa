@@ -131,7 +131,8 @@ def prepare_network(
             df = df.where(df > solve_opts["clip_p_max_pu"], other=0.0)
 
     load_shedding = solve_opts.get("load_shedding")
-    if load_shedding:
+    load_shedding_gens = n.generators.query("carrier == 'load'")
+    if load_shedding and load_shedding_gens.empty:
         # intersect between macroeconomic and surveybased willingness to pay
         # http://journal.frontiersin.org/article/10.3389/fenrg.2015.00055/full
         # TODO: retrieve color and nice name from config
@@ -818,7 +819,7 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
 
     # Remove load shedding and global constraints
     load_shedding_gens = n.generators.query("carrier == 'load'")
-    if not load_shedding_gens.empty:
+    if not load_shedding_gens.empty and not config["solving"]["options"]["load_shedding"]:
         n.mremove("Generator", load_shedding_gens.index)
     n.global_constraints.drop(n.global_constraints.index, inplace=True)
 
@@ -874,7 +875,7 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
         logger.info(f"New Metrics: {new_metrics}")
 
         if config["iterative_solving"]["TEP_only"]:
-            continue
+            break
 
         # Generation Expansion step
         logger.info("Generation Expansion")

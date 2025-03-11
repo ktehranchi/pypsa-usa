@@ -48,10 +48,10 @@ if not config.get("iterative_solving"):
             )
         threads: solver_threads
         resources:
+            walltime= config_provider("walltime", "solve_network"),
             mem_mb=lambda wildcards, input, attempt: (input.size // 100000)
             * attempt
-            * 80,
-            walltime=config["solving"].get("walltime", "12:00:00"),
+            * 300,
         conda:
             "../envs/environment.yaml"
         script:
