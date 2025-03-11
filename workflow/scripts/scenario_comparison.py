@@ -49,7 +49,6 @@ class ScenarioDataGetter:
         self.reference_scenario = self.config.get("reference_scenario", None)
         self.force_regenerate = force_regenerate
         self.skip_plots = skip_plots
-
         # Set output path
         output_folder = self.config.get("output_folder_name", "scenario_comparison")
         self.figures_path = Path.cwd() / f"results/{output_folder}"
@@ -73,7 +72,6 @@ class ScenarioDataGetter:
         try:
             self.raw_data = self._load_scenario_data()
             self.processed_data = self._process_data()
-
             # Load network
             self.network = pypsa.Network(self.config["network"]["path"])
             self.carriers = self._get_carriers()
@@ -117,14 +115,12 @@ class ScenarioDataGetter:
         If cached statistics exist, they are loaded instead of regenerating.
         """
         data = {}
-
         # Check for file existence before starting
         missing_networks = []
         for scenario in self.scenarios:
             network_path = Path(scenario["path"])
             if not network_path.exists():
                 missing_networks.append((scenario["name"], str(network_path)))
-
         if missing_networks:
             error_msg = "The following network files could not be found:\n"
             for name, path in missing_networks:
@@ -141,7 +137,6 @@ class ScenarioDataGetter:
             if not network_path.exists() and self.config.get("ignore_missing_files", False):
                 logger.warning(f"Skipping missing network for {scenario_name}")
                 continue
-
             # Check if cached statistics exist
             cached_file = self.cache_path / f"statistics_{scenario_name}.csv"
 
@@ -183,7 +178,6 @@ class ScenarioDataGetter:
                     if self.config.get("continue_on_error", False):
                         continue
                     raise
-
         return data
 
     def _generate_statistics(self, n: pypsa.Network) -> pd.DataFrame:
@@ -288,7 +282,6 @@ class ScenarioDataGetter:
     def _get_carriers(self) -> pd.DataFrame:
         """Get carriers information from the network."""
         carriers = self.network.carriers.copy()
-
         # Use custom carrier colors from config if available
         if "carrier_colors" in self.config:
             for carrier, color in self.config["carrier_colors"].items():
@@ -307,7 +300,6 @@ class ScenarioDataGetter:
             "onwind": {"legend_name": "Onshore Wind"},
             "hydrogen": {"legend_name": "Hydrogen Storage"},
         }
-
         for carrier, properties in carrier_properties.items():
             if carrier in carriers.index:
                 for key, value in properties.items():
@@ -420,7 +412,6 @@ class ScenarioDataGetter:
 
         # Combine all data
         combined_df = pd.concat(data, ignore_index=True)
-
         # Add scenario components
         try:
             combined_df["scenario_name"] = combined_df["Scenario"].apply(
@@ -460,13 +451,11 @@ class ScenarioDataGetter:
                         row[f"{variable} (Total)"] = value
                     except Exception:
                         row[f"{variable} (Total)"] = np.nan
-
                     # Get top contributors (carriers) for this variable
                     try:
                         # Group by carrier and sum
                         carriers = df[variable].groupby(level=1).sum().sum()
                         top_carriers = carriers.nlargest(3)
-
                         for i, (carrier, val) in enumerate(top_carriers.items(), 1):
                             row[f"{variable} Top {i}"] = carrier
                             row[f"{variable} Top {i} Value"] = val
@@ -539,7 +528,6 @@ class ScenarioPlotter:
         # Add title
         if title:
             fig.suptitle(title, fontsize=12, fontweight="bold")
-
         # Add timestamp if requested
         if add_timestamp:
             timestamp = time.strftime("%Y-%m-%d %H:%M")
@@ -597,7 +585,6 @@ class ScenarioPlotter:
         if combined_df.empty:
             logger.warning(f"Empty dataframe for {variable}, skipping plot")
             return
-
         # Apply scenario filter if specified
         if "plot_scenarios" in self.config:
             filtered_scenarios = self.config["plot_scenarios"]
@@ -626,7 +613,6 @@ class ScenarioPlotter:
                 if scenario_df.empty:
                     logger.warning(f"No data for scenario {scenario} in horizon {horizon}")
                     continue
-
                 bottoms = np.zeros(len(y_positions))
                 for tech in scenario_df["nice_name"].unique():
                     try:
