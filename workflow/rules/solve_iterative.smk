@@ -76,8 +76,13 @@ rule solve_network_iterative:
         transmission_network=config_provider("model_topology", "transmission_network"),
         iterative=True,
     input:
-        network=RESULTS
-        + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc",
+        network=(
+            RESULTS
+            + "{interconnect}/networks/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}_{sector}.nc"
+            if config_provider("mapping", "skip_mapping")
+            else RESULTS
+            + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc"
+        ),
         flowgates="repo_data/ReEDS_Constraints/transmission/transmission_capacity_init_AC_ba_NARIS2024.csv",
         safer_reeds="config/policy_constraints/reeds/prm_annual.csv",
         rps_reeds="config/policy_constraints/reeds/rps_fraction.csv",

@@ -1629,6 +1629,7 @@ def remove_kvl(n):
 
     Function implemented for Kamran's research, and not added to default configs.
     """
+    logger.warning("Removing Kirchhoff's Voltage Law constraints")
     n.model.constraints.remove("Kirchhoff-Voltage-Law")
 
 
@@ -1782,8 +1783,14 @@ if __name__ == "__main__":
 
     n = pypsa.Network(snakemake.input.network)
 
-    if "mapping" in snakemake.params.keys() and snakemake.params.mapping.get("line_expansion", None):
+    if "mapping" in snakemake.params.keys() and snakemake.params.mapping.get("least_cost_case", None):
+        """use for SQ Least Cost Expansion, remove load shedding and global constraints"""
+
+        load_shedding_gens = n.generators.query("carrier == 'load'")
+        if not load_shedding_gens.empty:
+            n.mremove("Generator", load_shedding_gens.index)
         n.global_constraints.drop(n.global_constraints.index, inplace=True)
+
         n.lines.s_nom_min = n.lines.s_nom
         n.links.p_nom_min = n.links.p_nom
         links_extensible_mask = n.links.p_nom_extendable

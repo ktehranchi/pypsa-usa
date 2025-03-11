@@ -718,13 +718,13 @@ def add_operational_reserve_margin(n, sns, config):
     n.model.add_constraints(lhs <= rhs, name="Generator-p-reserve-upper")
 
 
-def remove_kvl(n):
-    """
-    Removes Kirchhoff's voltage law (KVL) constraints.
+# def remove_kvl(n):
+#     """
+#     Removes Kirchhoff's voltage law (KVL) constraints.
 
-    Function implemented for Kamran's research, and not added to default configs.
-    """
-    n.model.constraints.remove("Kirchhoff-Voltage-Law")
+#     Function implemented for Kamran's research, and not added to default configs.
+#     """
+#     n.model.constraints.remove("Kirchhoff-Voltage-Law")
 
 
 def extra_functionality(n, snapshots):
@@ -751,8 +751,8 @@ def extra_functionality(n, snapshots):
     reserve = config["electricity"].get("operational_reserve", {})
     if reserve.get("activate"):
         add_operational_reserve_margin(n, snapshots, config)
-    if config.get("solving", {}).get("options", {}).get("remove_kvl", False):
-        remove_kvl(n)
+    # if config.get("solving", {}).get("options", {}).get("remove_kvl", False):
+    #     remove_kvl(n)
     add_land_use_constraints(n)
 
 
@@ -944,7 +944,6 @@ if __name__ == "__main__":
     if "iterative" in snakemake.params.keys():
         snakemake.config["solving"]["options"]["load_shedding"] = False
         snakemake.params["solving"]["options"]["load_shedding"] = False
-        snakemake.params["solving"]["options"]["remove_kvl"] = False
 
     if "sector_opts" in snakemake.wildcards.keys():
         opts += "-" + snakemake.wildcards.sector_opts

@@ -174,7 +174,7 @@ def electricity_figures(wildcards):
                 )
             )
             if config.get("iterative_solving", False)
-            else None
+            else []
         )
         figs.append(
             expand(
@@ -182,6 +182,8 @@ def electricity_figures(wildcards):
                 + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc",
                 **config["scenario"],
             )
+            if not config.get("mapping", {}).get("skip_mapping", True)
+            else []
         )
         return list(chain(*figs))  # expand list of lists to single list
     else:
