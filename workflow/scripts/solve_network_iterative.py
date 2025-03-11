@@ -834,16 +834,26 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
         """Helper function to collect metrics at each iteration."""
         # Get optimal capacity statistics
         capacity_stats = n.statistics.optimal_capacity()
+        lv0_stats = capacity_stats.groupby(level=0).sum()
         capacity_stats = capacity_stats.droplevel(0)
         capacity_stats.fillna(0, inplace=True)
+
+        opex = n.statistics.opex().groupby(level=0).sum() / 1e6
+        capex = n.statistics.capex().groupby(level=0).sum() / 1e6
+        # append 'capex' and 'opex' to the metrics index names strings
+        capex.index = capex.index.map(lambda x: x + "_capex")
+        opex.index = opex.index.map(lambda x: x + "_opex")
+        lv0_stats.index = lv0_stats.index.map(lambda x: x + " _summary_caps")
 
         # Create a dictionary for the metrics
         return {
             "iteration": iter_num,
             "expansion_type": expansion_type,
             "total_cost": n.objective,
-            "total_gen": n.generators.p_nom.sum(),
-            # unpack the capacity_stats dictionary
+            # unpack the stats to dicts
+            **capex[n.investment_periods[0]].to_dict(),
+            **opex[n.investment_periods[0]].to_dict(),
+            **lv0_stats[n.investment_periods[0]].to_dict(),
             **capacity_stats[n.investment_periods[0]].to_dict(),
         }
 
@@ -874,7 +884,7 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
         logger.info(f"New Metrics: {new_metrics}")
 
         if config["iterative_solving"]["TEP_only"]:
-            continue
+            break
 
         # Generation Expansion step
         logger.info("Generation Expansion")
@@ -894,12 +904,13 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
 
         # Define the stopping criteria
         if iter_ > 1:
+            # Compare the last two generation expansions
             if np.allclose(
                 metrics[-1]["total_cost"],
-                metrics[-2]["total_cost"],
+                metrics[-3]["total_cost"],
                 rtol=config["iterative_solving"]["rtol"],
             ):
-                logger.info("Convergence reached.")
+                logger.info(f"Convergence reached after {iter_} iterations")
                 break
 
     return n, pd.DataFrame(metrics)
@@ -928,6 +939,12 @@ if __name__ == "__main__":
         )
 
     opts = snakemake.wildcards.opts
+
+    if "iterative" in snakemake.params.keys():
+        snakemake.config["solving"]["options"]["load_shedding"] = False
+        snakemake.params["solving"]["options"]["load_shedding"] = False
+        snakemake.params["solving"]["options"]["remove_kvl"] = False
+
     if "sector_opts" in snakemake.wildcards.keys():
         opts += "-" + snakemake.wildcards.sector_opts
     opts = [o for o in opts.split("-") if o != ""]

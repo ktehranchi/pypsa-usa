@@ -72,7 +72,8 @@ localrules:
 wildcard_constraints:
     interconnect="usa|texas|western|eastern",
     simpl="[a-zA-Z0-9]*|all",
-    clusters="[0-9]+m?+c?|all",
+    clusters="[0-9]+m?+a?+c?|all",
+    clusters_hires="[0-9]+m?+a?+c?|all",
     ll="(v|c)([0-9\.]+|opt|all)|all",
     opts="[-+a-zA-Z0-9\.]*",
     sector="([EG]-)*[EG]",
@@ -164,6 +165,24 @@ def electricity_figures(wildcards):
                 figure=FIGURES_SYSTEM,
             )
         )
+        (
+            figs.append(
+                expand(
+                    RESULTS
+                    + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped_TEP.nc",
+                    **config["scenario"],
+                )
+            )
+            if config.get("iterative_solving", False)
+            else None
+        )
+        figs.append(
+            expand(
+                RESULTS
+                + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc",
+                **config["scenario"],
+            )
+        )
         return list(chain(*figs))  # expand list of lists to single list
     else:
         return []
@@ -214,14 +233,6 @@ def sector_figures(wildcards):
                 figure=FIGURES_SECTOR_SANKEY,
             )
         )
-        # figs.append(
-        #     expand(
-        #         RESULTS
-        #         + "{interconnect}/figures/s{simpl}_c{clusters}/l{ll}_{opts}_{sector}/system/validate/{figure}.png",
-        #         **config["scenario"],
-        #         figure=FIGURES_SECTOR_VALIDATE,
-        #     )
-        # )
         return list(chain(*figs))
     return figs
 

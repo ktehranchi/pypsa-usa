@@ -216,6 +216,7 @@ def add_technology_capacity_target_constraints(n, config):
     """
     p_nom = n.model["Generator-p_nom"]
     tct_data = pd.read_csv(config["electricity"]["technology_capacity_targets"])
+
     if tct_data.empty:
         return
 
@@ -343,6 +344,22 @@ def add_technology_capacity_target_constraints(n, config):
                 f"Carrier: {target.carrier}\n"
                 f"Max Value: {target['max']}\n"
                 f"Max Value Adj: {rhs}",
+            )
+
+        if not np.isnan(target["equals"]):
+            rhs = target["equals"] - round(lhs_existing, 2)
+            n.model.add_constraints(
+                lhs == rhs,
+                name=f"GlobalConstraint-{target.name}_{target.planning_horizon}_equals",
+            )
+
+            logger.info(
+                "Adding TCT Constraint:\n"
+                f"Name: {target.name}\n"
+                f"Planning Horizon: {target.planning_horizon}\n"
+                f"Region: {target.region}\n"
+                f"Carrier: {target.carrier}\n"
+                f"RHS Value: {rhs}",
             )
 
 
@@ -658,7 +675,8 @@ def add_regional_co2limit(n, sns, config):
         index_col=[0],
     )
     logger.info("Adding regional Co2 Limits.")
-    regional_co2_lims = regional_co2_lims[regional_co2_lims.planning_horizon.isin(snakemake.params.planning_horizons)]
+
+    regional_co2_lims = regional_co2_lims[regional_co2_lims.planning_horizon.isin(n.investment_periods)]
     weightings = n.snapshot_weightings.loc[n.snapshots]
 
     for idx, emmission_lim in regional_co2_lims.iterrows():
@@ -1605,6 +1623,15 @@ def add_sector_demand_response_constraints(n, config):
             _apply_constraint(n, sector, dr_config)
 
 
+def remove_kvl(n):
+    """
+    Removes Kirchhoff's voltage law (KVL) constraints.
+
+    Function implemented for Kamran's research, and not added to default configs.
+    """
+    n.model.constraints.remove("Kirchhoff-Voltage-Law")
+
+
 def extra_functionality(n, snapshots):
     """
     Collects supplementary constraints which will be passed to
@@ -1648,6 +1675,8 @@ def extra_functionality(n, snapshots):
         if not water_config.get("simple_storage", True):
             add_water_heater_constraints(n, config)
         add_sector_demand_response_constraints(n, config)
+    if config.get("solving", {}).get("options", {}).get("remove_kvl", False):
+        remove_kvl(n)
 
     for o in opts:
         if "EQ" in o:
@@ -1659,8 +1688,7 @@ def solve_network(n, config, solving, opts="", **kwargs):
     set_of_options = solving["solver"]["options"]
     cf_solving = solving["options"]
 
-    if len(n.investment_periods) > 1:
-        kwargs["multi_investment_periods"] = config["foresight"] == "perfect"
+    kwargs["multi_investment_periods"] = config["foresight"] == "perfect"
 
     kwargs["solver_options"] = solving["solver_options"][set_of_options] if set_of_options else {}
     kwargs["solver_name"] = solving["solver"]["name"]
@@ -1731,6 +1759,14 @@ if __name__ == "__main__":
         )
 
     opts = snakemake.wildcards.opts
+    if "mapping" in snakemake.params.keys():
+        # add 'TCT' to opts if mapping is used
+        opts += "-TCT"
+        snakemake.config["electricity"]["technology_capacity_targets"] = snakemake.input.mapping_csv
+        snakemake.config["solving"]["options"]["load_shedding"] = True
+        snakemake.params["solving"]["options"]["load_shedding"] = True
+        snakemake.params["solving"]["options"]["remove_kvl"] = False
+
     if "sector_opts" in snakemake.wildcards.keys():
         opts += "-" + snakemake.wildcards.sector_opts
     opts = [o for o in opts.split("-") if o != ""]
@@ -1745,6 +1781,14 @@ if __name__ == "__main__":
     np.random.seed(solve_opts.get("seed", 123))
 
     n = pypsa.Network(snakemake.input.network)
+
+    if "mapping" in snakemake.params.keys() and snakemake.params.mapping.get("line_expansion", None):
+        n.global_constraints.drop(n.global_constraints.index, inplace=True)
+        n.lines.s_nom_min = n.lines.s_nom
+        n.links.p_nom_min = n.links.p_nom
+        links_extensible_mask = n.links.p_nom_extendable
+        n.links.p_nom_extendable = links_extensible_mask
+        n.lines.s_nom_extendable = True
 
     n = prepare_network(
         n,

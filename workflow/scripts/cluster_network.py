@@ -570,21 +570,35 @@ if __name__ == "__main__":
     topology_aggregation = params.topology_aggregation
 
     exclude_carriers = params.cluster_network["exclude_carriers"]
-    aggregate_carriers = set(n.generators.carrier) - set(exclude_carriers)
+    all_carriers = set(n.generators.carrier).union(set(n.storage_units.carrier))
+    aggregate_carriers = all_carriers - set(exclude_carriers)
     conventional_carriers = set(params.conventional_carriers)
-    non_aggregated_carriers = {}
-    if snakemake.wildcards.clusters.endswith("m"):
-        n_clusters = int(snakemake.wildcards.clusters[:-1])
-        aggregate_carriers = set(params.conventional_carriers) & aggregate_carriers
-        non_aggregated_carriers = set(n.generators.carrier) - aggregate_carriers
-    elif snakemake.wildcards.clusters.endswith("c"):
-        n_clusters = int(snakemake.wildcards.clusters[:-1])
-        aggregate_carriers = aggregate_carriers - conventional_carriers
-        non_aggregated_carriers = set(n.generators.carrier) - aggregate_carriers
-    elif snakemake.wildcards.clusters == "all":
+
+    # Extract cluster information from wildcards
+    cluster_wc = snakemake.wildcards.get("clusters", None) or snakemake.wildcards.get("clusters_hires", None)
+
+    if cluster_wc == "all":
         n_clusters = len(n.buses)
+        non_aggregated_carriers = set()
+    elif cluster_wc.endswith("m"):
+        # Only aggregate conventional carriers
+        n_clusters = int(cluster_wc[:-1])
+        aggregate_carriers = conventional_carriers & aggregate_carriers
+        non_aggregated_carriers = all_carriers - aggregate_carriers
+    elif cluster_wc.endswith("c"):
+        # Aggregate all except conventional carriers
+        n_clusters = int(cluster_wc[:-1])
+        aggregate_carriers = aggregate_carriers - conventional_carriers
+        non_aggregated_carriers = all_carriers - aggregate_carriers
+    elif cluster_wc.endswith("a"):
+        # Do not aggregate Any carriers
+        n_clusters = int(cluster_wc[:-1])
+        aggregate_carriers = set()
+        non_aggregated_carriers = all_carriers
     else:
-        n_clusters = int(snakemake.wildcards.clusters)
+        # Default case - just interpret as number of clusters
+        n_clusters = int(cluster_wc)
+        non_aggregated_carriers = set()
 
     n.generators.loc[
         n.generators.carrier.isin(non_aggregated_carriers),
