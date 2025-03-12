@@ -19,6 +19,8 @@ rule generate_tct_requirements:
         + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/tct_inputs.csv",
     log:
         "logs/generate_tct_requirements/{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}.log",
+    group:
+        "solve_mapping"
     script:
         "../scripts/tct_prep.py"
 
@@ -56,9 +58,11 @@ rule solve_network_mapping:
         python=LOGS
         + "solve_network/{interconnect}/elec_s{simpl}_cl_{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_python.log",
     threads: solver_threads
+    group:
+        "solve_mapping"
     resources:
-        mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 80,
-        walltime=config["solving"].get("walltime", "12:00:00"),
+        mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 300,
+        walltime= config_provider("walltime","solve_network_mapping", default='00:30:00'),
     conda:
         "../envs/environment.yaml"
     script:
@@ -79,7 +83,7 @@ rule solve_network_iterative:
         network=(
             RESULTS
             + "{interconnect}/networks/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}_{sector}.nc"
-            if config_provider("mapping", "skip_mapping")
+            if config.get("mapping",{}).get("skip_mapping",False)
             else RESULTS
             + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc"
         ),
@@ -109,8 +113,8 @@ rule solve_network_iterative:
         )
     threads: solver_threads
     resources:
-        mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 80,
-        walltime=config["solving"].get("walltime", "12:00:00"),
+        mem_mb=180000,
+        walltime=config_provider("walltime","solve_network_mapping"),
     conda:
         "../envs/environment.yaml"
     script:
@@ -168,6 +172,7 @@ rule cluster_network_hires:
         "benchmarks/cluster_network/{interconnect}/elec_s{simpl}_ch{clusters_hires}"
     threads: 1
     resources:
+        walltime= config_provider("walltime","cluster_network_hires",default="01:00:00"),
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     script:
         "../scripts/cluster_network.py"
@@ -199,6 +204,7 @@ rule add_extra_components_hires:
         "logs/add_extra_components/{interconnect}/elec_s{simpl}_ch{clusters_hires}_ec.log",
     threads: 1
     resources:
+        walltime= config_provider("walltime","add_extra_components_hires",default="00:30:00"),
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     group:
         "prepare"
@@ -239,6 +245,7 @@ rule prepare_network_hires:
         solver="logs/prepare_network/{interconnect}/elec_s{simpl}_ch{clusters_hires}_ec_l{ll}_{opts}.log",
     threads: 1
     resources:
+        walltime= config_provider("walltime","prepare_network_hires",default="00:30:00"),
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     group:
         "prepare"
