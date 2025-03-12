@@ -194,72 +194,7 @@ class ScenarioDataGetter:
         pd.DataFrame
             DataFrame containing statistics
         """
-        # Basic approach: use the built-in statistics method if available
-        try:
-            return n.statistics()
-        except AttributeError:
-            logger.warning("Network object does not have statistics method. Using custom implementation.")
-            return self._custom_statistics(n)
-
-    def _custom_statistics(self, n: pypsa.Network) -> pd.DataFrame:
-        """
-        Custom implementation of statistics for older PyPSA versions.
-
-        Parameters
-        ----------
-        n : pypsa.Network
-            Network to analyze
-
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame containing statistics
-        """
-        # Create a dictionary to store statistics DataFrames
-        stats = {}
-
-        # Get investment periods or just a single period
-        if hasattr(n, "investment_periods") and len(n.investment_periods) > 0:
-            horizons = n.investment_periods
-        else:
-            # If no investment periods, use the year from the first snapshot
-            horizons = [pd.Timestamp(n.snapshots[0]).year]
-
-        # Calculate optimal capacity
-        capacity = pd.DataFrame(
-            index=pd.MultiIndex.from_product(
-                [
-                    ["Generator", "StorageUnit", "Link"],
-                    n.carriers.index,
-                ],
-            ),
-            columns=horizons,
-        )
-
-        # Generators
-        for c in n.generators.carrier.unique():
-            for p in horizons:
-                capacity.loc[("Generator", c), p] = n.generators[n.generators.carrier == c].p_nom_opt.sum()
-
-        # Storage units
-        if not n.storage_units.empty:
-            for c in n.storage_units.carrier.unique():
-                for p in horizons:
-                    capacity.loc[("StorageUnit", c), p] = n.storage_units[n.storage_units.carrier == c].p_nom_opt.sum()
-
-        # Links
-        if not n.links.empty:
-            for c in n.links.carrier.unique():
-                for p in horizons:
-                    capacity.loc[("Link", c), p] = n.links[n.links.carrier == c].p_nom_opt.sum()
-
-        stats["Optimal Capacity"] = capacity.fillna(0)
-
-        # Implement other statistics like Supply, CAPEX, OPEX as needed
-        # This is a simplified placeholder
-
-        # Create a MultiIndex DataFrame with all statistics
-        return pd.concat(stats, axis=1)
+        return n.statistics()
 
     def _process_data(self) -> dict[str, dict[str, pd.DataFrame]]:
         """Process data to match the expected format."""

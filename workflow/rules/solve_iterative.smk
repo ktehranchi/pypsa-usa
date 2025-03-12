@@ -1,122 +1,3 @@
-# Rules to Optimize/Solve Network
-
-
-def pop_layout_input(wildcards):
-    if wildcards["sector"] != "E":
-        return RESOURCES + "{interconnect}/pop_layout_elec_s{simpl}_c{clusters}.csv"
-    else:
-        return []
-
-
-rule generate_tct_requirements:
-    params:
-        planning_horizons=config["scenario"]["planning_horizons"],
-    input:
-        network=RESULTS
-        + "{interconnect}/networks/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}_{sector}.nc",
-    output:
-        mapping_csv=RESULTS
-        + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/tct_inputs.csv",
-    log:
-        "logs/generate_tct_requirements/{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}.log",
-    script:
-        "../scripts/tct_prep.py"
-
-
-rule solve_network_mapping:
-    params:
-        solving=config_provider("solving"),
-        foresight=config_provider("foresight"),
-        planning_horizons=config["scenario"]["planning_horizons"],
-        co2_sequestration_potential=config["sector"].get(
-            "co2_sequestration_potential", 200
-        ),
-        transmission_network=config_provider("model_topology", "transmission_network"),
-        mapping=config_provider("mapping"),
-    input:
-        network=RESOURCES
-        + "{interconnect}/elec_s{simpl}_ch{clusters_hires}_ec_l{ll}_{opts}.nc",
-        flowgates="repo_data/ReEDS_Constraints/transmission/transmission_capacity_init_AC_ba_NARIS2024.csv",
-        safer_reeds="config/policy_constraints/reeds/prm_annual.csv",
-        rps_reeds="config/policy_constraints/reeds/rps_fraction.csv",
-        ces_reeds="config/policy_constraints/reeds/ces_fraction.csv",
-        pop_layout=pop_layout_input,
-        mapping_csv=RESULTS
-        + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/tct_inputs.csv",
-    output:
-        network=RESULTS
-        + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc",
-        config=RESULTS
-        + "{interconnect}/configs/config.elec_s{simpl}_cl{clusters}_ch{clusters_hires}_l{ll}_{opts}_{sector}.yaml",
-    log:
-        solver=normpath(
-            LOGS
-            + "solve_network/{interconnect}/elec_s{simpl}_cl_{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_solver.log"
-        ),
-        python=LOGS
-        + "solve_network/{interconnect}/elec_s{simpl}_cl_{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_python.log",
-    threads: solver_threads
-    resources:
-        mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 80,
-        walltime=config["solving"].get("walltime", "12:00:00"),
-    conda:
-        "../envs/environment.yaml"
-    script:
-        "../scripts/solve_network.py"
-
-
-rule solve_network_iterative:
-    params:
-        solving=config_provider("solving"),
-        foresight=config_provider("foresight"),
-        planning_horizons=config["scenario"]["planning_horizons"],
-        co2_sequestration_potential=config["sector"].get(
-            "co2_sequestration_potential", 200
-        ),
-        transmission_network=config_provider("model_topology", "transmission_network"),
-        iterative=True,
-    input:
-        network=(
-            RESULTS
-            + "{interconnect}/networks/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}_{sector}.nc"
-            if config_provider("mapping", "skip_mapping")
-            else RESULTS
-            + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc"
-        ),
-        flowgates="repo_data/ReEDS_Constraints/transmission/transmission_capacity_init_AC_ba_NARIS2024.csv",
-        safer_reeds="config/policy_constraints/reeds/prm_annual.csv",
-        rps_reeds="config/policy_constraints/reeds/rps_fraction.csv",
-        ces_reeds="config/policy_constraints/reeds/ces_fraction.csv",
-        pop_layout=pop_layout_input,
-    output:
-        network=RESULTS
-        + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped_TEP.nc",
-        config=RESULTS
-        + "{interconnect}/configs/config.elec_s{simpl}_cl{clusters}_ch{clusters_hires}_l{ll}_{opts}_{sector}_mapped_TEP.yaml",
-        iterative_metrics=RESULTS
-        + "{interconnect}/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}iterative_metrics.csv",
-    log:
-        solver=normpath(
-            LOGS
-            + "solve_network/{interconnect}/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_solver_iter.log"
-        ),
-        python=LOGS
-        + "solve_network/{interconnect}/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_python_iter.log",
-    benchmark:
-        (
-            BENCHMARKS
-            + "solve_network/{interconnect}/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}"
-        )
-    threads: solver_threads
-    resources:
-        mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 80,
-        walltime=config["solving"].get("walltime", "12:00:00"),
-    conda:
-        "../envs/environment.yaml"
-    script:
-        "../scripts/solve_network_iterative.py"
-
-
 ##### inputs for hires file #####55
 
 
@@ -246,3 +127,302 @@ rule prepare_network_hires:
         "logs/prepare_network",
     script:
         "../scripts/prepare_network.py"
+
+
+############ Rules to Optimize/Solve Network ##############
+
+
+def pop_layout_input(wildcards):
+    if wildcards["sector"] != "E":
+        return RESOURCES + "{interconnect}/pop_layout_elec_s{simpl}_c{clusters}.csv"
+    else:
+        return []
+
+
+rule generate_tct_requirements:
+    params:
+        planning_horizons=config["scenario"]["planning_horizons"],
+    input:
+        network=RESULTS
+        + "{interconnect}/networks/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}_{sector}.nc",
+    output:
+        mapping_csv=RESULTS
+        + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/tct_inputs.csv",
+    log:
+        "logs/generate_tct_requirements/{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}.log",
+    script:
+        "../scripts/tct_prep.py"
+
+
+rule solve_network_mapping:
+    params:
+        solving=config_provider("solving"),
+        foresight=config_provider("foresight"),
+        planning_horizons=config["scenario"]["planning_horizons"],
+        co2_sequestration_potential=config["sector"].get(
+            "co2_sequestration_potential", 200
+        ),
+        transmission_network=config_provider("model_topology", "transmission_network"),
+        mapping=config_provider("mapping"),
+    input:
+        network=RESOURCES
+        + "{interconnect}/elec_s{simpl}_ch{clusters_hires}_ec_l{ll}_{opts}.nc",
+        flowgates="repo_data/ReEDS_Constraints/transmission/transmission_capacity_init_AC_ba_NARIS2024.csv",
+        safer_reeds="config/policy_constraints/reeds/prm_annual.csv",
+        rps_reeds="config/policy_constraints/reeds/rps_fraction.csv",
+        ces_reeds="config/policy_constraints/reeds/ces_fraction.csv",
+        pop_layout=pop_layout_input,
+        mapping_csv=RESULTS
+        + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/tct_inputs.csv",
+    output:
+        network=RESULTS
+        + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc",
+        config=RESULTS
+        + "{interconnect}/configs/config.elec_s{simpl}_cl{clusters}_ch{clusters_hires}_l{ll}_{opts}_{sector}.yaml",
+    log:
+        solver=normpath(
+            LOGS
+            + "solve_network/{interconnect}/elec_s{simpl}_cl_{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_solver.log"
+        ),
+        python=LOGS
+        + "solve_network/{interconnect}/elec_s{simpl}_cl_{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_python.log",
+    threads: solver_threads
+    resources:
+        mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 80,
+        walltime=config["solving"].get("walltime", "12:00:00"),
+    conda:
+        "../envs/environment.yaml"
+    script:
+        "../scripts/solve_network.py"
+
+
+rule solve_network_iterative:
+    params:
+        solving=config_provider("solving"),
+        foresight=config_provider("foresight"),
+        planning_horizons=config["scenario"]["planning_horizons"],
+        co2_sequestration_potential=config["sector"].get(
+            "co2_sequestration_potential", 200
+        ),
+        transmission_network=config_provider("model_topology", "transmission_network"),
+        iterative=True,
+    input:
+        network=(
+            RESULTS
+            + "{interconnect}/networks/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}_{sector}.nc"
+            if config.get("mapping", {}).get("skip_mapping", False)
+            else RESULTS
+            + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc"
+        ),
+        flowgates="repo_data/ReEDS_Constraints/transmission/transmission_capacity_init_AC_ba_NARIS2024.csv",
+        safer_reeds="config/policy_constraints/reeds/prm_annual.csv",
+        rps_reeds="config/policy_constraints/reeds/rps_fraction.csv",
+        ces_reeds="config/policy_constraints/reeds/ces_fraction.csv",
+        pop_layout=pop_layout_input,
+    output:
+        network=RESULTS
+        + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped_TEP.nc",
+        config=RESULTS
+        + "{interconnect}/configs/config.elec_s{simpl}_cl{clusters}_ch{clusters_hires}_l{ll}_{opts}_{sector}_mapped_TEP.yaml",
+        iterative_metrics=RESULTS
+        + "{interconnect}/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}iterative_metrics.csv",
+    log:
+        solver=normpath(
+            LOGS
+            + "solve_network/{interconnect}/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_solver_iter.log"
+        ),
+        python=LOGS
+        + "solve_network/{interconnect}/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_python_iter.log",
+    benchmark:
+        (
+            BENCHMARKS
+            + "solve_network/{interconnect}/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}"
+        )
+    threads: solver_threads
+    resources:
+        mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 80,
+        walltime=config["solving"].get("walltime", "12:00:00"),
+    conda:
+        "../envs/environment.yaml"
+    script:
+        "../scripts/solve_network_iterative.py"
+
+
+rule plot_network_maps_MAPPING:
+    input:
+        network=RESULTS
+        + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc",
+        regions_onshore=RESOURCES
+        + "{interconnect}/Geospatial/regions_onshore_s{simpl}_ch{clusters_hires}.geojson",
+        regions_offshore=RESOURCES
+        + "{interconnect}/Geospatial/regions_offshore_s{simpl}_ch{clusters_hires}.geojson",
+    params:
+        electricity=config["electricity"],
+        plotting=config["plotting"],
+        retirement=config["electricity"].get("retirement", "technical"),
+    output:
+        **{
+            fig: RESULTS
+            + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/maps/%s"
+            % fig
+            for fig in FIGURES_MAPS
+        },
+    log:
+        "logs/plot_figures/{interconnect}_{simpl}_{clusters}_ch{clusters_hires}_l{ll}_{opts}_{sector}.log",
+    threads: 1
+    resources:
+        mem_mb=7000,
+    script:
+        "../scripts/plot_network_maps.py"
+
+
+rule plot_statistics_MAPPING:
+    input:
+        network=RESULTS
+        + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc",
+        regions_onshore=(
+            config["custom_files"]["files_path"]
+            + "regions_onshore_s_{clusters}.geojson"
+            if config["custom_files"].get("activate", False)
+            else RESOURCES
+            + "{interconnect}/Geospatial/regions_onshore_s{simpl}_{clusters}.geojson"
+        ),
+        regions_offshore=(
+            config["custom_files"]["files_path"]
+            + "regions_offshore_s_{clusters}.geojson"
+            if config["custom_files"].get("activate", False)
+            else RESOURCES
+            + "{interconnect}/Geospatial/regions_offshore_s{simpl}_{clusters}.geojson"
+        ),
+    params:
+        electricity=config["electricity"],
+        plotting=config["plotting"],
+        retirement=config["electricity"].get("retirement", "technical"),
+    output:
+        **{
+            fig: RESULTS
+            + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/emissions/%s"
+            % fig
+            for fig in FIGURES_EMISSIONS
+        },
+        **{
+            fig: RESULTS
+            + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/production/%s"
+            % fig
+            for fig in FIGURES_PRODUCTION
+        },
+        **{
+            fig: RESULTS
+            + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/system/%s"
+            % fig
+            for fig in FIGURES_SYSTEM
+        },
+        statistics_summary=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/statistics/statistics.csv",
+        statistics_dissaggregated_name_bus_carrier=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/statistics/statistics_dissaggregated_name_bus_carrier.csv",
+        statistics_dissaggregated_bus_carrier=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/statistics/statistics_dissaggregated_bus_carrier.csv",
+        generators=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/statistics/generators.csv",
+        storage_units=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/statistics/storage_units.csv",
+        links=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/statistics/links.csv",
+    log:
+        "logs/plot_figures/{interconnect}_{simpl}_{clusters}_ch{clusters_hires}_l{ll}_{opts}_{sector}_MAP.log",
+    threads: 1
+    resources:
+        mem_mb=5000,
+    script:
+        "../scripts/plot_statistics.py"
+
+
+rule plot_network_maps_iterative:
+    input:
+        network=RESULTS
+        + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped_TEP.nc",
+        regions_onshore=RESOURCES
+        + "{interconnect}/Geospatial/regions_onshore_s{simpl}_ch{clusters_hires}.geojson",
+        regions_offshore=RESOURCES
+        + "{interconnect}/Geospatial/regions_offshore_s{simpl}_ch{clusters_hires}.geojson",
+    params:
+        electricity=config["electricity"],
+        plotting=config["plotting"],
+        retirement=config["electricity"].get("retirement", "technical"),
+    output:
+        **{
+            fig: RESULTS
+            + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/maps/%s"
+            % fig
+            for fig in FIGURES_MAPS
+        },
+    log:
+        "logs/plot_figures/{interconnect}_{simpl}_{clusters}_ch{clusters_hires}_l{ll}_{opts}_{sector}.log",
+    threads: 1
+    resources:
+        mem_mb=7000,
+    script:
+        "../scripts/plot_network_maps.py"
+
+
+rule plot_statistics_iterative:
+    input:
+        network=RESULTS
+        + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped_TEP.nc",
+        regions_onshore=(
+            config["custom_files"]["files_path"]
+            + "regions_onshore_s_{clusters}.geojson"
+            if config["custom_files"].get("activate", False)
+            else RESOURCES
+            + "{interconnect}/Geospatial/regions_onshore_s{simpl}_{clusters}.geojson"
+        ),
+        regions_offshore=(
+            config["custom_files"]["files_path"]
+            + "regions_offshore_s_{clusters}.geojson"
+            if config["custom_files"].get("activate", False)
+            else RESOURCES
+            + "{interconnect}/Geospatial/regions_offshore_s{simpl}_{clusters}.geojson"
+        ),
+    params:
+        electricity=config["electricity"],
+        plotting=config["plotting"],
+        retirement=config["electricity"].get("retirement", "technical"),
+    output:
+        **{
+            fig: RESULTS
+            + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/emissions/%s"
+            % fig
+            for fig in FIGURES_EMISSIONS
+        },
+        **{
+            fig: RESULTS
+            + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/production/%s"
+            % fig
+            for fig in FIGURES_PRODUCTION
+        },
+        **{
+            fig: RESULTS
+            + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/system/%s"
+            % fig
+            for fig in FIGURES_SYSTEM
+        },
+        statistics_summary=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/statistics/statistics.csv",
+        statistics_dissaggregated_name_bus_carrier=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/statistics/statistics_dissaggregated_name_bus_carrier.csv",
+        statistics_dissaggregated_bus_carrier=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/statistics/statistics_dissaggregated_bus_carrier.csv",
+        generators=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/statistics/generators.csv",
+        storage_units=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/statistics/storage_units.csv",
+        links=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/statistics/links.csv",
+    log:
+        "logs/plot_figures/{interconnect}_{simpl}_{clusters}_ch{clusters_hires}_l{ll}_{opts}_{sector}_TEP.log",
+    threads: 1
+    resources:
+        mem_mb=5000,
+    script:
+        "../scripts/plot_statistics.py"

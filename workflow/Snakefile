@@ -185,6 +185,44 @@ def electricity_figures(wildcards):
             if not config.get("mapping", {}).get("skip_mapping", True)
             else []
         )
+        figs.append(
+            expand(
+                RESULTS
+                + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/statistics/links.csv",
+                **config["scenario"],
+            )
+            if config.get("iterative_solving", False)
+            else []
+        )
+        figs.append(
+            expand(
+                RESULTS
+                + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/maps/{figure}",
+                **config["scenario"],
+                figure=FIGURES_MAPS,
+            )
+            if config.get("iterative_solving", False)
+            else []
+        )
+        figs.append(
+            expand(
+                RESULTS
+                + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/statistics/links.csv",
+                **config["scenario"],
+            )
+            if not config.get("mapping", {}).get("skip_mapping", True)
+            else []
+        )
+        figs.append(
+            expand(
+                RESULTS
+                + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/maps/{figure}",
+                **config["scenario"],
+                figure=FIGURES_MAPS,
+            )
+            if not config.get("mapping", {}).get("skip_mapping", True)
+            else []
+        )
         return list(chain(*figs))  # expand list of lists to single list
     else:
         return []

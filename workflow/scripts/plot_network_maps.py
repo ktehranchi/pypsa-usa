@@ -393,7 +393,9 @@ def plot_new_capacity_map(
     bus_pnom_opt = get_capacity_brownfield(n)
 
     bus_values = bus_pnom_opt - bus_pnom
-    bus_values = bus_values[(bus_values > 0) & (bus_values.index.get_level_values(1).isin(carriers))]
+    bus_values[bus_values < 0] = 0
+    bus_values = bus_values[bus_values.index.get_level_values(1).isin(carriers)]
+
     bus_values = remove_sector_buses(bus_values).reset_index().groupby(by=["bus", "carrier"]).sum().squeeze()
 
     line_snom = n.lines.s_nom
