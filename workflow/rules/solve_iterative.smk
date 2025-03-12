@@ -49,6 +49,9 @@ rule cluster_network_hires:
         "benchmarks/cluster_network/{interconnect}/elec_s{simpl}_ch{clusters_hires}"
     threads: 1
     resources:
+        walltime=config_provider(
+            "walltime", "cluster_network_hires", default="01:00:00"
+        ),
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     script:
         "../scripts/cluster_network.py"
@@ -80,6 +83,9 @@ rule add_extra_components_hires:
         "logs/add_extra_components/{interconnect}/elec_s{simpl}_ch{clusters_hires}_ec.log",
     threads: 1
     resources:
+        walltime=config_provider(
+            "walltime", "add_extra_components_hires", default="00:30:00"
+        ),
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     group:
         "prepare"
@@ -120,6 +126,9 @@ rule prepare_network_hires:
         solver="logs/prepare_network/{interconnect}/elec_s{simpl}_ch{clusters_hires}_ec_l{ll}_{opts}.log",
     threads: 1
     resources:
+        walltime=config_provider(
+            "walltime", "prepare_network_hires", default="00:30:00"
+        ),
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     group:
         "prepare"
