@@ -160,6 +160,7 @@ def prepare_network(
         # intersect between macroeconomic and surveybased willingness to pay
         # http://journal.frontiersin.org/article/10.3389/fenrg.2015.00055/full
         # TODO: retrieve color and nice name from config
+        logger.warning("Adding load shedding generators.")
         n.add("Carrier", "load", color="#dd2e23", nice_name="Load shedding")
         buses_i = n.buses.query("carrier == 'AC'").index
         if not np.isscalar(load_shedding):
@@ -315,13 +316,7 @@ def add_technology_capacity_target_constraints(n, config):
             )
 
             logger.info(
-                "Adding TCT Constraint:\n"
-                f"Name: {target.name}\n"
-                f"Planning Horizon: {target.planning_horizon}\n"
-                f"Region: {target.region}\n"
-                f"Carrier: {target.carrier}\n"
-                f"Min Value: {target['min']}\n"
-                f"Min Value Adj: {rhs}",
+                f"Adding TCT Constraint: Name: {target.name}, Planning Horizon: {target.planning_horizon}, Region: {target.region}, Carrier: {target.carrier}, Min Value: {target['min']}, Min Value Adj: {rhs}",
             )
 
         if not np.isnan(target["max"]):
@@ -337,13 +332,7 @@ def add_technology_capacity_target_constraints(n, config):
             )
 
             logger.info(
-                "Adding TCT Constraint:\n"
-                f"Name: {target.name}\n"
-                f"Planning Horizon: {target.planning_horizon}\n"
-                f"Region: {target.region}\n"
-                f"Carrier: {target.carrier}\n"
-                f"Max Value: {target['max']}\n"
-                f"Max Value Adj: {rhs}",
+                f"Adding TCT Constraint: Name: {target.name}, Planning Horizon: {target.planning_horizon}, Region: {target.region}, Carrier: {target.carrier}, Max Value: {target['max']}, Max Value Adj: {rhs}",
             )
 
         if not np.isnan(target["equals"]):
@@ -354,12 +343,7 @@ def add_technology_capacity_target_constraints(n, config):
             )
 
             logger.info(
-                "Adding TCT Constraint:\n"
-                f"Name: {target.name}\n"
-                f"Planning Horizon: {target.planning_horizon}\n"
-                f"Region: {target.region}\n"
-                f"Carrier: {target.carrier}\n"
-                f"RHS Value: {rhs}",
+                f"Adding TCT Constraint: Name: {target.name}, Planning Horizon: {target.planning_horizon}, Region: {target.region}, Carrier: {target.carrier}, Max Value: {target['max']}, Max Value Adj: {rhs}",
             )
 
 
@@ -789,7 +773,7 @@ def add_PRM_constraints(n, config):
         planning_reserve = peak_demand * (1.0 + prm.prm)
 
         # Get capacity contribution from resources
-        lhs_capacity = _calculate_capacity_accredidation(
+        lhs_capacity, rhs_existing = _calculate_capacity_accredidation(
             n,
             prm.planning_horizon,
             region_buses,
@@ -798,7 +782,7 @@ def add_PRM_constraints(n, config):
 
         # Add the constraint to the model
         n.model.add_constraints(
-            lhs_capacity >= planning_reserve,
+            lhs_capacity >= planning_reserve - rhs_existing,
             name=f"GlobalConstraint-{prm.name}_{prm.planning_horizon}_PRM",
         )
 
@@ -884,7 +868,7 @@ def _get_regional_demand(n, planning_horizon, region_buses):
 #  n.loads_t.p_set.loc[planning_horizon, n.loads.bus.isin(region_buses.index)].sum(axis=1)
 def _calculate_capacity_accredidation(n, planning_horizon, region_buses, peak_demand_hour):
     """
-    Calculate firm capacity contribution from all resources in a region.
+    Calculate capacity contribution from all resources in a region at the peak demand hour.
 
     This function accounts for:
     1. Extendable resources with appropriate capacity credit
@@ -923,7 +907,8 @@ def _calculate_capacity_accredidation(n, planning_horizon, region_buses, peak_de
             planning_horizon,
             peak_demand_hour,
         ]
-        ext_contribution = ext_p_nom * ext_p_max_pu
+
+        ext_contribution = ext_p_nom * ext_p_max_pu.values
     else:
         ext_contribution = 0
 
@@ -946,7 +931,7 @@ def _calculate_capacity_accredidation(n, planning_horizon, region_buses, peak_de
     else:
         non_ext_contribution = 0
 
-    return ext_contribution.sum() + non_ext_contribution
+    return ext_contribution.sum(), non_ext_contribution
 
 
 def add_operational_reserve_margin(n, sns, config):
@@ -1763,9 +1748,14 @@ if __name__ == "__main__":
     if "mapping" in snakemake.params.keys():
         # add 'TCT' to opts if mapping is used
         opts += "-TCT"
+        # Remove "PRM" from opts if present, don't need for busbar mapping
+        opts = [o for o in opts.split("-") if o != "PRM" and o != ""]
+        opts = "-".join(opts) if opts else ""
+
         snakemake.config["electricity"]["technology_capacity_targets"] = snakemake.input.mapping_csv
         snakemake.config["solving"]["options"]["load_shedding"] = True
         snakemake.params["solving"]["options"]["load_shedding"] = True
+        snakemake.config["solving"]["options"]["remove_kvl"] = False
         snakemake.params["solving"]["options"]["remove_kvl"] = False
 
     if "sector_opts" in snakemake.wildcards.keys():
