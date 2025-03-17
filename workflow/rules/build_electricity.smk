@@ -26,7 +26,7 @@ rule build_shapes:
         "logs/build_shapes/{interconnect}.log",
     threads: 1
     resources:
-        walltime=config_provider("walltime","build_shapes", default="00:30:00"),
+        walltime=config_provider("walltime", "build_shapes", default="00:30:00"),
         mem_mb=5000,
     script:
         "../scripts/build_shapes.py"
@@ -59,7 +59,7 @@ rule build_base_network:
     threads: 1
     resources:
         mem_mb=5000,
-        walltime=config_provider("walltime","build_base_network", default="00:30:00"),
+        walltime=config_provider("walltime", "build_base_network", default="00:30:00"),
     script:
         "../scripts/build_base_network.py"
 
@@ -89,7 +89,7 @@ rule build_bus_regions:
     threads: 1
     resources:
         mem_mb=3000,
-        walltime=config_provider("walltime","build_bus_regions", default="00:30:00"),
+        walltime=config_provider("walltime", "build_bus_regions", default="00:30:00"),
     script:
         "../scripts/build_bus_regions.py"
 
@@ -112,7 +112,7 @@ rule build_cost_data:
     threads: 1
     resources:
         mem_mb=5000,
-        walltime=config_provider("walltime","build_cost_data", default="00:30:00"),
+        walltime=config_provider("walltime", "build_cost_data", default="00:30:00"),
     script:
         "../scripts/build_cost_data.py"
 
@@ -140,7 +140,7 @@ if config["enable"].get("build_cutout", False):
         threads: ATLITE_NPROCESSES
         resources:
             mem_mb=ATLITE_NPROCESSES * 5000,
-            walltime=config_provider("walltime","build_cutout", default="10:30:00"),
+            walltime=config_provider("walltime", "build_cutout", default="10:30:00"),
         script:
             "../scripts/build_cutout.py"
 
@@ -198,7 +198,9 @@ rule build_renewable_profiles:
         )
         * attempt
         * 1.5,
-        walltime=config_provider("walltime","build_renewable_profiles", default="02:30:00"),
+        walltime=config_provider(
+            "walltime", "build_renewable_profiles", default="02:30:00"
+        ),
     wildcard_constraints:
         technology="(?!hydro|EGS).*",  # Any technology other than hydro
     script:
@@ -339,7 +341,9 @@ rule build_electrical_demand:
     threads: 2
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 70000) * attempt * 2,
-        walltime=config_provider("walltime","build_electrical_demand", default="00:50:00"),
+        walltime=config_provider(
+            "walltime", "build_electrical_demand", default="00:50:00"
+        ),
     script:
         "../scripts/build_demand.py"
 
@@ -372,7 +376,7 @@ rule build_sector_demand:
     threads: 2
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 70000) * attempt * 2,
-        walltime=config_provider("walltime","build_sector_demand", default="00:50:00"),
+        walltime=config_provider("walltime", "build_sector_demand", default="00:50:00"),
     script:
         "../scripts/build_demand.py"
 
@@ -409,7 +413,9 @@ rule build_transport_road_demand:
     threads: 2
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 70000) * attempt * 2,
-        walltime=config_provider("walltime","build_transport_road_demand", default="00:50:00"),
+        walltime=config_provider(
+            "walltime", "build_transport_road_demand", default="00:50:00"
+        ),
     script:
         "../scripts/build_demand.py"
 
@@ -508,7 +514,7 @@ rule add_demand:
         BENCHMARKS + "{interconnect}/add_demand"
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 70000) * attempt * 2,
-        walltime=config_provider("walltime","add_demand", default="00:50:00"),
+        walltime=config_provider("walltime", "add_demand", default="00:50:00"),
     script:
         "../scripts/add_demand.py"
 
@@ -573,7 +579,7 @@ rule build_powerplants:
         "logs/build_powerplants.log",
     resources:
         mem_mb=30000,
-        walltime=config_provider("walltime","build_powerplants", default="00:30:00"),
+        walltime=config_provider("walltime", "build_powerplants", default="00:30:00"),
     script:
         "../scripts/build_powerplants.py"
 
@@ -639,7 +645,7 @@ rule add_electricity:
     threads: 1
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 400000) * attempt * 2,
-        walltime=config_provider("walltime","add_electricity", default="01:00:00"),
+        walltime=config_provider("walltime", "add_electricity", default="01:00:00"),
     script:
         "../scripts/add_electricity.py"
 
@@ -672,7 +678,7 @@ rule simplify_network:
     threads: 1
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 1.5,
-        walltime=config_provider("walltime","simplify_network", default="01:00:00"),
+        walltime=config_provider("walltime", "simplify_network", default="01:00:00"),
     script:
         "../scripts/simplify_network.py"
 
@@ -725,7 +731,7 @@ rule cluster_network:
         "benchmarks/cluster_network/{interconnect}/elec_s{simpl}_c{clusters}"
     threads: 1
     resources:
-        walltime= config_provider("walltime","cluster_network"),
+        walltime=config_provider("walltime", "cluster_network"),
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     script:
         "../scripts/cluster_network.py"
@@ -758,7 +764,7 @@ rule add_extra_components:
     threads: 1
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
-        walltime=config_provider("walltime","add_extra_components", default="00:30:00"),
+        walltime=config_provider("walltime", "add_extra_components", default="00:30:00"),
     group:
         "prepare"
     script:
@@ -798,7 +804,7 @@ rule prepare_network:
         solver="logs/prepare_network/{interconnect}/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}.log",
     threads: 1
     resources:
-        walltime=config_provider("walltime","prepare_network", default="00:30:00"),
+        walltime=config_provider("walltime", "prepare_network", default="00:30:00"),
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     group:
         "prepare"

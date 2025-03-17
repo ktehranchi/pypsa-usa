@@ -343,7 +343,7 @@ def add_technology_capacity_target_constraints(n, config):
             )
 
             logger.info(
-                f"Adding TCT Constraint: Name: {target.name}, Planning Horizon: {target.planning_horizon}, Region: {target.region}, Carrier: {target.carrier}, Max Value: {target['max']}, Max Value Adj: {rhs}",
+                f"Adding TCT Constraint: Name: {target.name}, Planning Horizon: {target.planning_horizon}, Region: {target.region}, Carrier: {target.carrier}, Equals: {rhs}",
             )
 
 
@@ -1799,6 +1799,7 @@ if __name__ == "__main__":
         opts=opts,
         log_fn=snakemake.log.solver,
     )
+
     n.meta = dict(snakemake.config, **dict(wildcards=dict(snakemake.wildcards)))
     n.export_to_netcdf(snakemake.output[0])
 
