@@ -133,7 +133,7 @@ def main(snakemake):
         right_on=n.buses.index,
     ).set_index("sub_id")
     bus2sub_onshore = bus2sub[bus2sub.Bus.isin(onshore_buses.index)]
-    bus2sub_offshore = bus2sub[~bus2sub.Bus.isin(onshore_buses.index)]
+    # bus2sub_offshore = bus2sub[~bus2sub.Bus.isin(onshore_buses.index)]
 
     logger.info("Building Onshore Regions")
     onshore_regions = []
@@ -175,12 +175,14 @@ def main(snakemake):
     logger.info("Building Offshore Regions")
     offshore_regions = []
     buffered = combined_onshore.buffer(0.9)
+
     for i in range(len(offshore_shapes)):
         offshore_shape = offshore_shapes.iloc[i]
-        # Trip shape to be within certain distance from onshore_regions
+        # Trim shape to be within certain distance from onshore_regions
         offshore_shape = offshore_shape.intersection(buffered)
         shape_name = offshore_shapes.index[i]
-        offshore_buses = bus2sub_offshore[["x", "y"]]
+        # offshore_buses = bus2sub_offshore[["x", "y"]]
+        offshore_buses = bus2sub_onshore[["x", "y"]]
         if offshore_buses.empty:
             continue
         offshore_regions_c = gpd.GeoDataFrame(
