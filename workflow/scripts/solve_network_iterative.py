@@ -944,7 +944,7 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
         return {
             "iteration": iter_num,
             "expansion_type": expansion_type,
-            "objective": n.objective,
+            "objective": n.objective + n.objective_constant,
             # unpack the stats to dicts
             **capex[n.investment_periods[0]].to_dict(),
             **opex[n.investment_periods[0]].to_dict(),
@@ -978,9 +978,6 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
         metrics.append(new_metrics)
         logger.info(f"New Metrics: {new_metrics}")
 
-        if config["iterative_solving"]["TEP_only"]:
-            break
-
         # Generation Expansion step
         logger.info("Generation Expansion")
         # Fix transmission, allow generation expansion
@@ -996,6 +993,9 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
         new_metrics = track_metrics(iter_, "Generation")
         metrics.append(new_metrics)
         logger.info(f"New Metrics: {new_metrics}")
+
+        if config["iterative_solving"]["TEP_only"]:
+            break
 
         # Define the stopping criteria
         if iter_ > 1:
