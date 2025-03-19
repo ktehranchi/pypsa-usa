@@ -159,6 +159,8 @@ rule generate_tct_requirements:
         + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/tct_inputs.csv",
     log:
         "logs/generate_tct_requirements/{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}.log",
+    group: 
+        "MAPPING"
     script:
         "../scripts/tct_prep.py"
 
@@ -197,10 +199,12 @@ rule solve_network_mapping:
         + "solve_network/{interconnect}/elec_s{simpl}_cl_{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_python.log",
     threads: solver_threads
     resources:
-        mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 80,
+        mem_mb=150000,
         walltime=config["solving"].get("walltime", "12:00:00"),
     conda:
         "../envs/environment.yaml"
+    group:
+        "MAPPING"
     script:
         "../scripts/solve_network.py"
 
@@ -249,7 +253,7 @@ rule solve_network_iterative:
         )
     threads: solver_threads
     resources:
-        mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 80,
+        mem_mb=150000,
         walltime=config["solving"].get("walltime", "12:00:00"),
     conda:
         "../envs/environment.yaml"
@@ -281,6 +285,7 @@ rule plot_network_maps_MAPPING:
     threads: 1
     resources:
         mem_mb=7000,
+        walltime=config["walltime"].get("plotting", "00:30:00"),
     script:
         "../scripts/plot_network_maps.py"
 
@@ -338,11 +343,14 @@ rule plot_statistics_MAPPING:
         + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/statistics/storage_units.csv",
         links=RESULTS
         + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/statistics/links.csv",
+        lines=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_MAP/statistics/lines.csv",
     log:
         "logs/plot_figures/{interconnect}_{simpl}_{clusters}_ch{clusters_hires}_l{ll}_{opts}_{sector}_MAP.log",
     threads: 1
     resources:
         mem_mb=5000,
+        walltime=config["walltime"].get("plotting", "00:30:00"),
     script:
         "../scripts/plot_statistics.py"
 
@@ -371,6 +379,7 @@ rule plot_network_maps_iterative:
     threads: 1
     resources:
         mem_mb=7000,
+        walltime=config["walltime"].get("plotting", "00:30:00"),
     script:
         "../scripts/plot_network_maps.py"
 
@@ -428,10 +437,13 @@ rule plot_statistics_iterative:
         + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/statistics/storage_units.csv",
         links=RESULTS
         + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/statistics/links.csv",
+        lines=RESULTS
+        + "{interconnect}/figures/s{simpl}_cl{clusters}_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/statistics/lines.csv",
     log:
         "logs/plot_figures/{interconnect}_{simpl}_{clusters}_ch{clusters_hires}_l{ll}_{opts}_{sector}_TEP.log",
     threads: 1
     resources:
         mem_mb=5000,
+        walltime=config["walltime"].get("plotting", "00:30:00"),
     script:
         "../scripts/plot_statistics.py"

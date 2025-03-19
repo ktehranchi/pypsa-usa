@@ -1075,6 +1075,7 @@ if __name__ == "__main__":
     n.generators.to_csv(snakemake.output.generators)
     n.storage_units.to_csv(snakemake.output.storage_units)
     n.links.to_csv(snakemake.output.links)
+    n.lines.to_csv(snakemake.output.lines)
 
     # Bar Plots
     regions_to_plot = ["reeds_state", "nerc_reg", "interconnect", "all"]

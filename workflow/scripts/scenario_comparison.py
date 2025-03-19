@@ -150,7 +150,7 @@ class ScenarioDataGetter:
                     n = pypsa.Network(network_path)
 
                     # Generate statistics
-                    stats = self._generate_statistics(n)
+                    stats = n.statistics()
 
                     # Save to cache
                     stats.to_csv(cached_file)
@@ -179,22 +179,6 @@ class ScenarioDataGetter:
                         continue
                     raise
         return data
-
-    def _generate_statistics(self, n: pypsa.Network) -> pd.DataFrame:
-        """
-        Generate statistics from a PyPSA network.
-
-        Parameters
-        ----------
-        n : pypsa.Network
-            Network to analyze
-
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame containing statistics
-        """
-        return n.statistics()
 
     def _process_data(self) -> dict[str, dict[str, pd.DataFrame]]:
         """Process data to match the expected format."""
@@ -311,7 +295,7 @@ class ScenarioDataGetter:
                     df = df.loc[df.index.isin(filters["carrier"])]
 
                 # Align with carriers
-                df = df.reindex(self.carriers.index).dropna()
+                df = df.reindex(self.carriers.index).fillna(0)
 
                 # Check if we need to exclude certain carriers (like "Load shedding")
                 if "capacity" in variable.lower():
@@ -739,7 +723,7 @@ class ScenarioPlotter:
 
         for ax, horizon in zip(axes, planning_horizons):
             y_positions = np.arange(len(stats))
-            for j, (scenario, df) in enumerate(stats.items()):
+            for j, (carrier, df) in enumerate(stats.items()):
                 df = df["statistics"].fillna(0)
                 bottoms = np.zeros(len(y_positions))
                 if include_link:
@@ -771,7 +755,7 @@ class ScenarioPlotter:
                     bottoms[j] += values
 
                 df_copy = df.copy()
-                df_copy[["Scenario", "horizon"]] = scenario, horizon
+                df_copy[["Scenario", "horizon"]] = carrier, horizon
                 df_copy = df_copy.reset_index()
                 df_copy = df_copy.rename(columns={horizon: "statistics"})
                 combined_df = pd.concat(
@@ -826,9 +810,10 @@ class ScenarioPlotter:
             )  # only plot last horizon
             ref = combined_df.loc[self.reference_scenario].set_index("nice_name")
             combined_df = combined_df.reset_index().set_index("nice_name")
-            for scenario in combined_df.index.unique():
-                combined_df.loc[scenario, "statistics"] = (
-                    (combined_df.loc[scenario, "statistics"] - ref.loc[scenario, "statistics"])
+            for carrier in combined_df.index.unique():
+                ref_value = ref.loc[carrier, "statistics"] if carrier in ref.index else 0
+                combined_df.loc[carrier, "statistics"] = (
+                    (combined_df.loc[carrier, "statistics"] - ref_value)
                     / ref.statistics.sum()
                     * 100
                 )
@@ -929,6 +914,473 @@ class ScenarioPlotter:
             combined_df.to_csv(self.plot_data_path / f"{variable}_comparison.csv")
 
 
+class TablePlotter:
+    """Class for creating summary tables."""
+
+    def __init__(self, data_getter: ScenarioDataGetter):
+        """
+        Initialize with a data getter instance.
+
+        Parameters
+        ----------
+        data_getter : ScenarioDataGetter
+            Instance with loaded scenario data
+        """
+        self.data_getter = data_getter
+        self.figures_path = data_getter.figures_path
+        self.plot_data_path = data_getter.plot_data_path
+        self.carriers = data_getter.carriers
+        self.colors = data_getter.carriers["color"]
+        self.network = data_getter.network
+        self.processed_data = data_getter.processed_data
+        self.reference_scenario = data_getter.reference_scenario
+        self.config = data_getter.config
+
+        # Set plot style
+        self._set_plot_style()
+
+    def _set_plot_style(self) -> None:
+        """Set matplotlib plot style based on configuration."""
+        plt.style.use(self.config.get("plot_style", "default"))
+
+        # Custom figure size
+        plt.rcParams["figure.figsize"] = self.config.get("figure_size", [10, 6])
+
+        # Custom font sizes
+        font_sizes = self.config.get("font_sizes", {})
+        if font_sizes:
+            for key, size in font_sizes.items():
+                plt.rcParams[f"font.{key}"] = size
+
+    # def _latex_exporter(self, df: pd.DataFrame, filename: str, caption: str = None) -> None:
+    #     """
+    #     Export DataFrame to enhanced LaTeX format with grouped headers and better formatting.
+    #     Special LaTeX characters are automatically escaped.
+        
+    #     Parameters:
+    #     -----------
+    #     df : pd.DataFrame
+    #         The DataFrame to export
+    #     filename : str
+    #         The filename to save the LaTeX table to
+    #     caption : str, optional
+    #         Caption for the table
+    #     """
+    #     # Function to escape LaTeX special characters
+    #     def escape_latex(text):
+    #         if not isinstance(text, str):
+    #             text = str(text)
+            
+    #         # Process each character individually to ensure proper escaping
+    #         result = []
+    #         for char in text:
+    #             if char == '\\':
+    #                 result.append('\\textbackslash{}')
+    #             elif char == '$':
+    #                 result.append('\\$')
+    #             elif char == '%':
+    #                 result.append('\\%')
+    #             elif char == '&':
+    #                 result.append('\\&')
+    #             elif char == '#':
+    #                 result.append('\\#')
+    #             elif char == '_':
+    #                 result.append('\\_')
+    #             elif char == '{':
+    #                 result.append('\\{')
+    #             elif char == '}':
+    #                 result.append('\\}')
+    #             elif char == '~':
+    #                 result.append('\\textasciitilde{}')
+    #             elif char == '^':
+    #                 result.append('\\textasciicircum{}')
+    #             else:
+    #                 result.append(char)
+            
+    #         return ''.join(result)
+        
+    #     # Create a copy of the DataFrame to avoid modifying the original
+    #     df_copy = df.copy()
+        
+    #     # Escape special characters in column names
+    #     df_copy.columns = [escape_latex(col) for col in df_copy.columns]
+        
+    #     # Check if column names follow pattern that can be grouped
+    #     columns = df_copy.columns.tolist()
+        
+    #     # Determine if columns can be grouped by common prefixes
+    #     groups = {}
+    #     for col in columns:
+    #         parts = col.split('_')
+    #         if len(parts) >= 3:
+    #             # Use first 3 parts as the group name (e.g., "TAMU_SQ_Reactive")
+    #             prefix = '_'.join(parts[:3])
+    #             # Use the last part as the subgroup (e.g., "GEP")
+    #             suffix = parts[-1]
+    #             if prefix not in groups:
+    #                 groups[prefix] = []
+    #             groups[prefix].append((col, suffix))
+        
+    #     # Create LaTeX code
+    #     latex_code = []
+    #     latex_code.append("\\begin{table}")
+    #     latex_code.append("\\centering")
+    #     latex_code.append("\\small")
+    #     latex_code.append("\\setlength{\\tabcolsep}{4pt}")
+        
+    #     # Determine alignment based on data types
+    #     align = ['l']  # First column (metrics) is left-aligned
+    #     for col in df.columns[1:]:
+    #         # If column contains numeric data, right-align
+    #         if pd.api.types.is_numeric_dtype(df[col]):
+    #             align.append('r')
+    #         else:
+    #             align.append('l')
+        
+    #     latex_code.append(f"\\begin{{tabular}}{{{''.join(align)}}}")
+    #     latex_code.append("\\toprule")
+        
+    #     # If we have identifiable groups, create grouped headers
+    #     if groups and all(col in [c for g in groups.values() for c, _ in g] for col in columns[1:]):
+    #         # First row with group headers using multicolumn
+    #         first_row = [""]  # Empty cell for the "Metric" column
+    #         for prefix, cols in groups.items():
+    #             # Create a cleaner group name
+    #             clean_prefix = prefix.replace('_', ' ')
+    #             first_row.append(f"\\multicolumn{{{len(cols)}}}{{c}}{{\\textbf{{{clean_prefix}}}}}")
+    #         latex_code.append(" & ".join(first_row) + " \\\\")
+            
+    #         # Add cmidrules
+    #         cmidrule_start = 2  # Start after the first column
+    #         cmidrules = []
+    #         for prefix, cols in groups.items():
+    #             cmidrule_end = cmidrule_start + len(cols) - 1
+    #             cmidrules.append(f"\\cmidrule(lr){{{cmidrule_start}-{cmidrule_end}}}")
+    #             cmidrule_start = cmidrule_end + 1
+    #         latex_code.append(''.join(cmidrules))
+            
+    #         # Second row with specific column headers
+    #         second_row = ["\\textbf{Metric}"]
+    #         for prefix, cols in groups.items():
+    #             for _, suffix in cols:
+    #                 second_row.append(f"\\textbf{{{suffix}}}")
+    #         latex_code.append(" & ".join(second_row) + " \\\\")
+    #     else:
+    #         # Simple headers if no grouping
+    #         header_row = []
+    #         for col in columns:
+    #             header_row.append(f"\\textbf{{{col}}}")
+    #         latex_code.append(" & ".join(header_row) + " \\\\")
+        
+    #     latex_code.append("\\midrule")
+        
+    #     # Add data rows with special formatting for percentages and dollar values
+    #     for _, row in df.iterrows():
+    #         formatted_row = []
+    #         for i, val in enumerate(row):
+    #             col_name = df.columns[i]
+    #             if i == 0:  # First column (metric names)
+    #                 # Escape special characters in the metric names
+    #                 formatted_row.append(escape_latex(str(val)))
+    #             elif isinstance(val, (int, float)):
+    #                 # Format numbers with 2 decimal places
+    #                 if "%" in col_name or "Percentage" in col_name or "percent" in col_name.lower():
+    #                     formatted_row.append(f"{val:.2f}")
+    #                 elif "$" in col_name or "Cost" in col_name or "Capex" in col_name or "Opex" in col_name:
+    #                     formatted_row.append(f"{val:.2f}")
+    #                 else:
+    #                     # Format based on value
+    #                     if val == int(val):
+    #                         formatted_row.append(f"{int(val)}")
+    #                     else:
+    #                         formatted_row.append(f"{val:.2f}")
+    #             else:
+    #                 # Escape special characters in text values
+    #                 formatted_row.append(escape_latex(str(val)))
+    #         latex_code.append(" & ".join(formatted_row) + " \\\\")
+        
+    #     latex_code.append("\\bottomrule")
+    #     latex_code.append("\\end{tabular}")
+        
+    #     # Add caption if provided
+    #     if caption:
+    #         latex_code.append(f"\\caption{{{escape_latex(caption)}}}")
+        
+    #     latex_code.append("\\end{table}")
+        
+    #     # Write to file
+    #     with open(self.figures_path / filename, "w") as f:
+    #         f.write("\n".join(latex_code))
+            
+    #     print(f"LaTeX table exported to {self.figures_path / filename}")
+
+    def _latex_exporter(self, df: pd.DataFrame, filename: str, caption: str = None) -> None:
+            """
+            Export DataFrame to enhanced LaTeX format with grouped headers and better formatting.
+            Special LaTeX characters are automatically escaped.
+            
+            Parameters:
+            -----------
+            df : pd.DataFrame
+                The DataFrame to export
+            filename : str
+                The filename to save the LaTeX table to
+            caption : str, optional
+                Caption for the table
+            """
+            # Function to escape LaTeX special characters
+            def escape_latex(text):
+                if not isinstance(text, str):
+                    text = str(text)
+                
+                # Process each character individually to ensure proper escaping
+                result = []
+                for char in text:
+                    if char == '\\':
+                        result.append('\\textbackslash{}')
+                    elif char == '$':
+                        result.append('\\$')
+                    elif char == '%':
+                        result.append('\\%')
+                    elif char == '&':
+                        result.append('\\&')
+                    elif char == '#':
+                        result.append('\\#')
+                    elif char == '_':
+                        result.append('\\_')
+                    elif char == '{':
+                        result.append('\\{')
+                    elif char == '}':
+                        result.append('\\}')
+                    elif char == '~':
+                        result.append('\\textasciitilde{}')
+                    elif char == '^':
+                        result.append('\\textasciicircum{}')
+                    else:
+                        result.append(char)
+                
+                return ''.join(result)
+            
+            # Create a copy of the DataFrame to avoid modifying the original
+            df_copy = df.copy()
+            
+            # Escape special characters in column names
+            df_copy.columns = [escape_latex(col) for col in df_copy.columns]
+            
+            # Check if column names follow pattern that can be grouped
+            columns = df_copy.columns.tolist()
+            
+            # Determine if columns can be grouped by common prefixes
+            groups = {}
+            for col in columns:
+                parts = col.split('_')
+                if len(parts) >= 3:
+                    # Use first 3 parts as the group name (e.g., "TAMU_SQ_Reactive")
+                    prefix = '_'.join(parts[:3])
+                    # Use the last part as the subgroup (e.g., "GEP")
+                    suffix = parts[-1]
+                    if prefix not in groups:
+                        groups[prefix] = []
+                    groups[prefix].append((col, suffix))
+            
+            # Create LaTeX code
+            latex_code = []
+            latex_code.append("\\begin{table}")
+            latex_code.append("\\centering")
+            latex_code.append("\\small")
+            latex_code.append("\\setlength{\\tabcolsep}{4pt}")
+            
+            # Determine alignment based on data types
+            align = ['l']  # First column (metrics) is left-aligned
+            for col in df.columns[1:]:
+                # If column contains numeric data, right-align
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    align.append('r')
+                else:
+                    align.append('l')
+            
+            latex_code.append(f"\\begin{{tabular}}{{{''.join(align)}}}")
+            latex_code.append("\\toprule")
+            
+            # If we have identifiable groups, create grouped headers
+            if groups and all(col in [c for g in groups.values() for c, _ in g] for col in columns[1:]):
+                # First row with group headers using multicolumn
+                first_row = [""]  # Empty cell for the "Metric" column
+                for prefix, cols in groups.items():
+                    # Create a cleaner group name - strip to remove any trailing spaces
+                    clean_prefix = prefix.replace('_', ' ').strip()
+                    first_row.append(f"\\multicolumn{{{len(cols)}}}{{c}}{{\\textbf{{{clean_prefix}}}}}")
+                latex_code.append(" & ".join(first_row) + " \\\\")
+                
+                # Add cmidrules
+                cmidrule_start = 2  # Start after the first column
+                cmidrules = []
+                for prefix, cols in groups.items():
+                    cmidrule_end = cmidrule_start + len(cols) - 1
+                    cmidrules.append(f"\\cmidrule(lr){{{cmidrule_start}-{cmidrule_end}}}")
+                    cmidrule_start = cmidrule_end + 1
+                latex_code.append(''.join(cmidrules))
+                
+                # Second row with specific column headers
+                second_row = ["\\textbf{Metric}"]
+                for prefix, cols in groups.items():
+                    for _, suffix in cols:
+                        second_row.append(f"\\textbf{{{suffix}}}")
+                latex_code.append(" & ".join(second_row) + " \\\\")
+            else:
+                # Simple headers if no grouping
+                header_row = []
+                for col in columns:
+                    header_row.append(f"\\textbf{{{col}}}")
+                latex_code.append(" & ".join(header_row) + " \\\\")
+            
+            latex_code.append("\\midrule")
+            
+            # Add data rows with special formatting for percentages and dollar values
+            for _, row in df.iterrows():
+                formatted_row = []
+                for i, val in enumerate(row):
+                    col_name = df.columns[i]
+                    if i == 0:  # First column (metric names)
+                        # Escape special characters in the metric names
+                        formatted_row.append(escape_latex(str(val)))
+                    elif isinstance(val, (int, float)):
+                        # Format numbers with 2 decimal places
+                        if "%" in col_name or "Percentage" in col_name or "percent" in col_name.lower():
+                            formatted_row.append(f"{val:.2f}")
+                        elif "$" in col_name or "Cost" in col_name or "Capex" in col_name or "Opex" in col_name:
+                            formatted_row.append(f"{val:.2f}")
+                        else:
+                            # Format based on value
+                            if val == int(val):
+                                formatted_row.append(f"{int(val)}")
+                            else:
+                                formatted_row.append(f"{val:.2f}")
+                    else:
+                        # Escape special characters in text values
+                        formatted_row.append(escape_latex(str(val)))
+                latex_code.append(" & ".join(formatted_row) + " \\\\")
+            
+            latex_code.append("\\bottomrule")
+            latex_code.append("\\end{tabular}")
+            
+            # Add caption if provided
+            if caption:
+                latex_code.append(f"\\caption{{{escape_latex(caption)}}}")
+            
+            latex_code.append("\\end{table}")
+            
+            # Write to file
+            with open(self.figures_path / filename, "w") as f:
+                f.write("\n".join(latex_code))
+                
+            print(f"LaTeX table exported to {self.figures_path / filename}")
+
+                
+    def create_cost_comparison_table(self, output_formats=None):
+        """
+        Create a cost comparison table between scenarios.
+        
+        The table includes:
+        - Generator + Storage Capex
+        - Transmission Capex
+        - Total Opex
+        - Total Annualized System Cost
+        - Net relative benefit vs reference scenario
+        
+        Parameters
+        ----------
+        output_formats : list, optional
+            List of formats to export the table ('csv', 'latex', 'excel')
+        """
+        if output_formats is None:
+            output_formats = ['csv']
+        
+        # Initialize the table
+        metrics = [
+            'Generator + Storage Capex',
+            'Transmission Capex',
+            'Total Opex',
+            'Total Annualized System Cost',
+            'Relative Benefit vs Reference [%]'
+        ]
+        comparison_table = pd.DataFrame(index=metrics)
+        
+        # Get investment period weightings for annualization
+        try:
+            weights = self.network.investment_period_weightings.objective.values
+        except (AttributeError, KeyError):
+            weights = 1
+            logger.warning("Could not find investment period weightings, using 1.0")
+        
+        # Process each scenario
+        reference_cost = None
+        for scenario, data in self.processed_data.items():
+            stats = data["statistics"]
+
+            # Calculate metrics in billions
+            gen_storage_capex = (
+                stats.loc[stats.index.get_level_values(0).isin(["Generator", "StorageUnit"]), "Capital Expenditure"]
+                .sum().sum() * weights
+            ).sum() / 1e9
+            
+            trans_capex = (
+                stats.loc[stats.index.get_level_values(0).isin(["Line", "Link"]), "Capital Expenditure"]
+                .sum().sum() * weights
+            ).sum() / 1e9
+            
+            total_opex = (
+                stats["Operational Expenditure"].sum().sum() * weights
+            ).sum() / 1e9
+            
+            total_cost = gen_storage_capex + trans_capex + total_opex
+            
+            # Store in the table
+            comparison_table[scenario] = [
+                f"{gen_storage_capex:.2f}",
+                f"{trans_capex:.2f}",
+                f"{total_opex:.2f}",
+                f"{total_cost:.2f}",
+                ""  # Will fill relative benefit later
+            ]
+            
+            # Store reference cost if this is the reference scenario
+            if self.reference_scenario and scenario == self.reference_scenario:
+                reference_cost = total_cost
+        
+        # Calculate relative benefit if reference scenario is available
+        if self.reference_scenario and reference_cost is not None:
+            for scenario in comparison_table.columns:
+                if scenario == self.reference_scenario:
+                    comparison_table.loc['Relative Benefit vs Reference [%]', scenario] = "0.00"
+                else:
+                    try:
+                        total_cost = float(comparison_table.loc['Total Annualized System Cost', scenario])
+                        rel_benefit = ((reference_cost - total_cost) / reference_cost) * 100
+                        comparison_table.loc['Relative Benefit vs Reference [%]', scenario] = f"{rel_benefit:.2f}"
+                    except (ValueError, TypeError):
+                        comparison_table.loc['Relative Benefit vs Reference [%]', scenario] = "N/A"
+        
+        # Add units to the index
+        comparison_table.index = [
+            'Generator + Storage Capex [B$]',
+            'Transmission Capex [B$]',
+            'Total Opex [B$]',
+            'Total Annualized System Cost [B$]',
+            'Relative Benefit vs Reference [%]'
+        ]
+        
+        # Export the table in the requested formats
+        for fmt in output_formats:
+            if fmt == 'csv':
+                comparison_table.to_csv(self.figures_path / "cost_comparison_table.csv")
+            elif fmt == 'latex':
+                self._latex_exporter(comparison_table.reset_index().rename(columns={'index': 'Metric'}), 
+                                     "cost_comparison_table.tex")
+                
+        logger.info(f"Cost comparison table created and saved to {self.figures_path}")
+        return comparison_table
+
 def main():
     """Main execution function."""
     # Parse command line arguments
@@ -954,6 +1406,13 @@ def main():
 
     # Initialize data getter and plotter
     data_getter = ScenarioDataGetter(yaml_path, force_regenerate=args.force_regenerate, skip_plots=args.skip_plots)
+
+
+    # Create cost comparison table
+    tableplotter = TablePlotter(data_getter)
+    tableplotter.create_cost_comparison_table(output_formats=['csv', 'latex'])
+
+
     plotter = ScenarioPlotter(data_getter)
 
     # Generate plots for Optimal Capacity
@@ -1014,6 +1473,7 @@ def main():
         variable_units,
         title,
     )
+
 
 
 if __name__ == "__main__":
