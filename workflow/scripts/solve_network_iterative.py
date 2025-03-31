@@ -569,7 +569,7 @@ def add_PRM_constraints(n, config):
         planning_reserve = peak_demand * (1.0 + prm.prm)
 
         # Get capacity contribution from resources
-        lhs_capacity = _calculate_capacity_accredidation(
+        lhs_capacity, rhs_existing = _calculate_capacity_accredidation(
             n,
             prm.planning_horizon,
             region_buses,
@@ -578,7 +578,7 @@ def add_PRM_constraints(n, config):
 
         # Add the constraint to the model
         n.model.add_constraints(
-            lhs_capacity >= planning_reserve,
+            lhs_capacity >= planning_reserve - rhs_existing,
             name=f"GlobalConstraint-{prm.name}_{prm.planning_horizon}_PRM",
         )
 
@@ -664,7 +664,7 @@ def _get_regional_demand(n, planning_horizon, region_buses):
 #  n.loads_t.p_set.loc[planning_horizon, n.loads.bus.isin(region_buses.index)].sum(axis=1)
 def _calculate_capacity_accredidation(n, planning_horizon, region_buses, peak_demand_hour):
     """
-    Calculate firm capacity contribution from all resources in a region.
+    Calculate capacity contribution from all resources in a region at the peak demand hour.
 
     This function accounts for:
     1. Extendable resources with appropriate capacity credit
@@ -703,7 +703,8 @@ def _calculate_capacity_accredidation(n, planning_horizon, region_buses, peak_de
             planning_horizon,
             peak_demand_hour,
         ]
-        ext_contribution = ext_p_nom * ext_p_max_pu
+
+        ext_contribution = ext_p_nom * ext_p_max_pu.values
     else:
         ext_contribution = 0
 
@@ -726,7 +727,7 @@ def _calculate_capacity_accredidation(n, planning_horizon, region_buses, peak_de
     else:
         non_ext_contribution = 0
 
-    return ext_contribution.sum() + non_ext_contribution
+    return ext_contribution.sum(), non_ext_contribution
 
 
 def add_operational_reserve_margin(n, sns, config):
@@ -1021,7 +1022,7 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
             ):
                 logger.info(f"Convergence reached after {iter_} iterations")
                 break
-    
+
     # Reset the original capacities for statistics calculation
     n.generators.p_nom = original_p_nom_gens
     n.storage_units.p_nom = original_p_nom_su
