@@ -163,9 +163,7 @@ def prepare_network(
         logger.warning("Adding load shedding generators.")
         n.add("Carrier", "load", color="#dd2e23", nice_name="Load shedding")
         buses_i = n.buses.query("carrier == 'AC'").index
-        if not np.isscalar(load_shedding):
-            # TODO: do not scale via sign attribute (use Eur/MWh instead of Eur/kWh)
-            load_shedding = 1e2  # Eur/kWh
+        load_shedding = 1e5 # $/kwh
 
         n.madd(
             "Generator",
@@ -175,7 +173,7 @@ def prepare_network(
             carrier="load",
             sign=1e-3,  # Adjust sign to measure p and p_nom in kW instead of MW
             marginal_cost=load_shedding,  # Eur/kWh
-            p_nom=1e9,  # kW
+            p_nom=4e6,  # kW
         )
 
     if solve_opts.get("noisy_costs"):

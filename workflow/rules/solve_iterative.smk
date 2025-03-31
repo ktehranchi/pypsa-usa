@@ -253,7 +253,7 @@ rule solve_network_iterative:
         )
     threads: solver_threads
     resources:
-        mem_mb=150000,
+        mem_mb=100000,
         walltime=config["solving"].get("walltime", "12:00:00"),
     conda:
         "../envs/environment.yaml"

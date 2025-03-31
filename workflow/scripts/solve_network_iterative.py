@@ -921,10 +921,6 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
     storage_extensible_mask = n.storage_units.p_nom_extendable
     links_extensible_mask = n.links.p_nom_extendable
 
-    # Set minimum capacities
-    n.lines.s_nom_min = n.lines.s_nom
-    n.links.p_nom_min = n.links.p_nom
-
     def track_metrics(iter_num, expansion_type):
         """Helper function to collect metrics at each iteration."""
         # Get optimal capacity statistics
@@ -952,6 +948,18 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
             **capacity_stats[n.investment_periods[0]].to_dict(),
         }
 
+    # Store original capacities
+    original_p_nom_gens = n.generators.p_nom.copy()
+    original_p_nom_su = n.storage_units.p_nom.copy()
+    original_s_nom_lines = n.lines.s_nom.copy()
+    original_p_nom_links = n.links.p_nom.copy()
+
+    # Set min/max capacities
+    n.lines.s_nom_min = n.lines.s_nom
+    n.links.p_nom_min = n.links.p_nom
+    n.lines.s_nom_max = 1e8
+    n.links.p_nom_max = 1e8
+
     new_metrics = track_metrics(0, "Base")
     metrics.append(new_metrics)
     logger.info(f"New Metrics: {new_metrics}")
@@ -959,36 +967,38 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
     for iter_ in range(1, config["iterative_solving"]["max_iter"] + 1):
         logger.info(f"SOLUTION ITERATION {iter_}")
         logger.info("Transmission Expansion")
-        # Transmission Expansion step
+        # Set generation capacities from previous iteration
         n.generators.p_nom = n.generators.p_nom_opt
         n.storage_units.p_nom = n.storage_units.p_nom_opt
 
         # Fix generation, allow transmission expansion
         n.generators.p_nom_extendable = False
         n.storage_units.p_nom_extendable = False
-
         n.lines.s_nom_extendable = True
         n.links.p_nom_extendable = links_extensible_mask
 
-        n.lines.s_nom_max = 1e8
-        n.links.p_nom_max = 1e8
-
+        # Solve the network, track metrics
         n = solve_network(n, config, solving, opts, **kwargs)
         new_metrics = track_metrics(iter_, "Transmission")
         metrics.append(new_metrics)
         logger.info(f"New Metrics: {new_metrics}")
 
-        # Generation Expansion step
         logger.info("Generation Expansion")
-        # Fix transmission, allow generation expansion
+        # Set transmission capacities from previous iteration
         n.lines.s_nom = n.lines.s_nom_opt
         n.links.p_nom = n.links.p_nom_opt
+
+        # Use original generation capacities
+        n.generators.p_nom = original_p_nom_gens
+        n.storage_units.p_nom = original_p_nom_su
+
+        # Fix transmission, allow generation expansion
         n.lines.s_nom_extendable = False
         n.links.p_nom_extendable = False
-
         n.generators.p_nom_extendable = gens_extensible_mask
         n.storage_units.p_nom_extendable = storage_extensible_mask
 
+        # Solve the network, track metrics
         n = solve_network(n, config, solving, opts, **kwargs)
         new_metrics = track_metrics(iter_, "Generation")
         metrics.append(new_metrics)
@@ -996,6 +1006,10 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
 
         if config["iterative_solving"]["TEP_only"]:
             break
+
+        # If doing more iterations, reset the original line capacities
+        n.lines.s_nom = original_s_nom_lines
+        n.links.p_nom = original_p_nom_links
 
         # Define the stopping criteria
         if iter_ > 1:
@@ -1007,6 +1021,12 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
             ):
                 logger.info(f"Convergence reached after {iter_} iterations")
                 break
+    
+    # Reset the original capacities for statistics calculation
+    n.generators.p_nom = original_p_nom_gens
+    n.storage_units.p_nom = original_p_nom_su
+    n.lines.s_nom = original_s_nom_lines
+    n.links.p_nom = original_p_nom_links
 
     return n, pd.DataFrame(metrics)
 
@@ -1036,8 +1056,8 @@ if __name__ == "__main__":
     opts = snakemake.wildcards.opts
 
     if "iterative" in snakemake.params.keys():
-        snakemake.config["solving"]["options"]["load_shedding"] = True
-        snakemake.params["solving"]["options"]["load_shedding"] = True
+        snakemake.config["solving"]["options"]["load_shedding"] = False
+        snakemake.params["solving"]["options"]["load_shedding"] = False
 
     if "sector_opts" in snakemake.wildcards.keys():
         opts += "-" + snakemake.wildcards.sector_opts
