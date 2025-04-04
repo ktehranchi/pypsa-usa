@@ -24,7 +24,6 @@ Additionally, some extra constraints specified in :mod:`solve_network` are added
 """
 
 import logging
-import re
 from typing import Any
 
 import numpy as np
@@ -54,6 +53,7 @@ def get_region_buses(n, region_list):
             | n.buses.reeds_state.isin(region_list)
             | n.buses.interconnect.str.lower().isin(region_list)
             | n.buses.nerc_reg.isin(region_list)
+            | n.buses.index.isin(region_list)
             | (1 if "all" in region_list else 0)
         )
     ]
@@ -163,7 +163,7 @@ def prepare_network(
         logger.warning("Adding load shedding generators.")
         n.add("Carrier", "load", color="#dd2e23", nice_name="Load shedding")
         buses_i = n.buses.query("carrier == 'AC'").index
-        load_shedding = 1e5 # $/kwh
+        load_shedding = 1e5  # $/kwh
 
         n.madd(
             "Generator",
@@ -490,93 +490,6 @@ def add_RPS_constraints(n, config):
             )
 
 
-def add_EQ_constraints(n, o, scaling=1e-1):
-    """
-    Add equity constraints to the network.
-
-    Currently this is only implemented for the electricity sector only.
-
-    Opts must be specified in the config.yaml.
-
-    Parameters
-    ----------
-    n : pypsa.Network
-    o : str
-
-    Example
-    -------
-    scenario:
-        opts: [Co2L-EQ0.7-24H]
-
-    Require each country or node to on average produce a minimal share
-    of its total electricity consumption itself. Example: EQ0.7c demands each country
-    to produce on average at least 70% of its consumption; EQ0.7 demands
-    each node to produce on average at least 70% of its consumption.
-    """
-    # TODO: Generalize to cover myopic and other sectors?
-    float_regex = r"[0-9]*\.?[0-9]+"
-    level = float(re.findall(float_regex, o)[0])
-    if o[-1] == "c":
-        ggrouper = n.generators.bus.map(n.buses.country)
-        lgrouper = n.loads.bus.map(n.buses.country)
-        sgrouper = n.storage_units.bus.map(n.buses.country)
-    else:
-        ggrouper = n.generators.bus
-        lgrouper = n.loads.bus
-        sgrouper = n.storage_units.bus
-    load = n.snapshot_weightings.generators @ n.loads_t.p_set.groupby(lgrouper, axis=1).sum()
-    inflow = n.snapshot_weightings.stores @ n.storage_units_t.inflow.groupby(sgrouper, axis=1).sum()
-    inflow = inflow.reindex(load.index).fillna(0.0)
-    rhs = scaling * (level * load - inflow)
-    p = n.model["Generator-p"]
-    lhs_gen = (p * (n.snapshot_weightings.generators * scaling)).groupby(ggrouper.to_xarray()).sum().sum("snapshot")
-    # TODO: double check that this is really needed, why do have to subtract the spillage
-    if not n.storage_units_t.inflow.empty:
-        spillage = n.model["StorageUnit-spill"]
-        lhs_spill = (
-            (spillage * (-n.snapshot_weightings.stores * scaling)).groupby(sgrouper.to_xarray()).sum().sum("snapshot")
-        )
-        lhs = lhs_gen + lhs_spill
-    else:
-        lhs = lhs_gen
-    n.model.add_constraints(lhs >= rhs, name="equity_min")
-
-
-def add_BAU_constraints(n, config):
-    """
-    Add a per-carrier minimal overall capacity.
-
-    BAU_mincapacities and opts must be adjusted in the config.yaml.
-
-    Parameters
-    ----------
-    n : pypsa.Network
-    config : dict
-
-    Example
-    -------
-    scenario:
-        opts: [Co2L-BAU-24H]
-    electricity:
-        BAU_mincapacities:
-            solar: 0
-            onwind: 0
-            OCGT: 100000
-            offwind-ac: 0
-            offwind-dc: 0
-    Which sets minimum expansion across all nodes e.g. in Europe to 100GW.
-    OCGT bus 1 + OCGT bus 2 + ... > 100000
-    """
-    mincaps = pd.Series(config["electricity"]["BAU_mincapacities"])
-    p_nom = n.model["Generator-p_nom"]
-    ext_i = n.generators.query("p_nom_extendable")
-    ext_carrier_i = xr.DataArray(ext_i.carrier.rename_axis("Generator-ext"))
-    lhs = p_nom.groupby(ext_carrier_i).sum()
-    index = mincaps.index.intersection(lhs.indexes["carrier"])
-    rhs = mincaps[index].rename_axis("carrier")
-    n.model.add_constraints(lhs >= rhs, name="bau_mincaps")
-
-
 def add_interface_limits(n, sns, config):
     """
     Adds interface transmission limits to constrain inter-regional transfer
@@ -735,13 +648,79 @@ def add_regional_co2limit(n, sns, config):
         )
 
 
+def add_ERM_constraints(n, config):
+    """
+    Add Energy Reserve Margin (PRM) constraints for regional capacity adequacy.
+
+    This function enforces that each region has sufficient firm capacity to meet
+    peak demand plus a reserve margin. These resource must be "energy-backed" meaning
+    reasources like storage devices must have the state of charge to meet the reserve
+    to contribute to the ERM.
+
+    Parameters
+    ----------
+    n : pypsa.Network
+        The PyPSA network object
+    config : dict
+        Configuration dictionary containing ERM parameters
+    """
+    # Load regional PRM requirements
+    regional_prm = _get_combined_prm_requirements(n, config)
+
+    # Apply constraints for each region and planning horizon
+    for _, erm in regional_prm.iterrows():
+        # Skip if no valid planning horizon or region
+        if erm.planning_horizon not in n.investment_periods:
+            continue
+
+        region_list = [region_.strip() for region_ in erm.region.split(",")]
+        region_buses = get_region_buses(n, region_list)
+
+        if region_buses.empty:
+            continue
+
+        # Calculate peak demand and required reserve margin
+        regional_demand = _get_regional_demand(n, erm.planning_horizon, region_buses)
+        planning_reserve = regional_demand * (1.0 + erm.prm)
+
+        # Get capacity contribution from resources
+        lhs_capacity, rhs_existing = _calculate_capacity_accredidation(
+            n,
+            erm.planning_horizon,
+            region_buses,
+            peak_demand_hour=regional_demand.idxmax(),
+        )
+
+        # # Get transmission contributions
+        # inter_regional_lines = n.lines[
+        #     (n.lines.bus0.isin(region_buses.index) & ~n.lines.bus1.isin(region_buses.index))
+        #     | (~n.lines.bus0.isin(region_buses.index) & n.lines.bus1.isin(region_buses.index))
+        # ]
+        # inter_regional_links = n.links[
+        #     (n.links.bus0.isin(region_buses.index) & ~n.links.bus1.isin(region_buses.index))
+        #     | (~n.links.bus0.isin(region_buses.index) & n.links.bus1.isin(region_buses.index))
+        # ]
+
+        # Add the constraint to the model
+        n.model.add_constraints(
+            lhs_capacity >= planning_reserve - rhs_existing,
+            name=f"GlobalConstraint-{erm.name}_{erm.planning_horizon}_PRM",
+        )
+
+        logger.info(
+            f"Added PRM constraint for {erm.name} in {erm.planning_horizon}: "
+            # f"Peak demand: {peak_demand:.2f} MW, "
+            f"Required capacity: {planning_reserve:.2f} MW",
+        )
+
+
 def add_PRM_constraints(n, config):
     """
     Add Planning Reserve Margin (PRM) constraints for regional capacity adequacy.
 
     This function enforces that each region has sufficient firm capacity to meet
-    peak demand plus a reserve margin. Only firm resources (not variable renewables
-    or storage) contribute to meeting this requirement.
+    peak demand plus a reserve margin. All generators are credited according to
+    their p_max_pu value at the peak demand hour.
 
     Parameters
     ----------
@@ -863,8 +842,7 @@ def _get_regional_demand(n, planning_horizon, region_buses):
     ].sum(axis=1)
 
 
-#  n.loads_t.p_set.loc[planning_horizon, n.loads.bus.isin(region_buses.index)].sum(axis=1)
-def _calculate_capacity_accredidation(n, planning_horizon, region_buses, peak_demand_hour):
+def _calculate_capacity_accredidation(n, planning_horizon, region_buses, peak_demand_hour=None):
     """
     Calculate capacity contribution from all resources in a region at the peak demand hour.
 
@@ -896,12 +874,8 @@ def _calculate_capacity_accredidation(n, planning_horizon, region_buses, peak_de
 
     if not region_active_ext_gens.empty:
         ext_p_nom = n.model["Generator-p_nom"].loc[region_active_ext_gens.index]
-        ext_p_max_pu = get_as_dense(
-            n,
-            "Generator",
-            "p_max_pu",
-            inds=region_active_ext_gens.index,
-        ).loc[
+
+        ext_p_max_pu = get_as_dense(n, "Generator", "p_max_pu", inds=region_active_ext_gens.index).loc[
             planning_horizon,
             peak_demand_hour,
         ]
@@ -1631,10 +1605,10 @@ def extra_functionality(n, snapshots):
         add_RPS_constraints(n, config)
     if "REM" in opts and n.generators.p_nom_extendable.any():
         add_regional_co2limit(n, snapshots, config)
-    if "BAU" in opts and n.generators.p_nom_extendable.any():
-        add_BAU_constraints(n, config)
     if "PRM" in opts and n.generators.p_nom_extendable.any():
         add_PRM_constraints(n, config)
+    if "ERM" in opts and n.generators.p_nom_extendable.any():
+        add_ERM_constraints(n, config)
     if "TCT" in opts and n.generators.p_nom_extendable.any():
         add_technology_capacity_target_constraints(n, config)
     reserve = config["electricity"].get("operational_reserve", {})
@@ -1661,10 +1635,6 @@ def extra_functionality(n, snapshots):
         add_sector_demand_response_constraints(n, config)
     if config.get("solving", {}).get("options", {}).get("remove_kvl", False):
         remove_kvl(n)
-
-    for o in opts:
-        if "EQ" in o:
-            add_EQ_constraints(n, o)
     add_land_use_constraints(n)
 
 

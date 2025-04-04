@@ -34,6 +34,12 @@ FIGURES_PRODUCTION = [
     "seasonal_daily_production.pdf",
 ]
 
+FIGURES_SWEEP = [
+    "objective_comparison.pdf",
+    "capacity_comparison.pdf",
+    "production_comparison.pdf",
+]
+
 FIGURES_SYSTEM = [
     "bar_regional_capacity_reeds_state.pdf",
     "bar_regional_capacity_nerc_reg.pdf",
@@ -221,6 +227,16 @@ def electricity_figures(wildcards):
                 figure=FIGURES_MAPS,
             )
             if not config.get("mapping", {}).get("skip_mapping", True)
+            else []
+        )
+        figs.append(
+            expand(
+                RESULTS
+                + "{interconnect}/figures/s{simpl}_clSWEEP_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/sweep/{figure}",
+                **config["scenario"],
+                figure=FIGURES_SWEEP,
+            )
+            if config.get("iterative_solving", False)
             else []
         )
         return list(chain(*figs))  # expand list of lists to single list

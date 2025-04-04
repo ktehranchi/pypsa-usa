@@ -154,12 +154,13 @@ rule generate_tct_requirements:
     input:
         network=RESULTS
         + "{interconnect}/networks/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}_{sector}.nc",
+        lr_busmap=RESOURCES + "{interconnect}/busmap_s{simpl}_{clusters}.csv",
     output:
         mapping_csv=RESULTS
         + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/tct_inputs.csv",
     log:
         "logs/generate_tct_requirements/{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}.log",
-    group: 
+    group:
         "MAPPING"
     script:
         "../scripts/tct_prep.py"
@@ -447,3 +448,36 @@ rule plot_statistics_iterative:
         walltime=config["walltime"].get("plotting", "00:30:00"),
     script:
         "../scripts/plot_statistics.py"
+
+
+rule plot_comparison:
+    input:
+        networks=lambda wildcards: expand(
+            RESULTS
+            + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped_TEP.nc",
+            interconnect=config["scenario"]["interconnect"],
+            simpl=config["scenario"]["simpl"],
+            clusters=config["scenario"]["clusters"],
+            clusters_hires=config["scenario"]["clusters_hires"],
+            ll=config["scenario"]["ll"],
+            opts=config["scenario"]["opts"],
+            sector=config["scenario"]["sector"],
+        ),
+    params:
+        electricity=config["electricity"],
+        plotting=config["plotting"],
+    output:
+        **{
+            fig: RESULTS
+            + "{interconnect}/figures/s{simpl}_clSWEEP_ch{clusters_hires}/l{ll}_{opts}_{sector}_TEP/sweep/%s"
+            % fig
+            for fig in FIGURES_SWEEP
+        },
+    log:
+        "logs/plot_figures/{interconnect}_{simpl}_ch{clusters_hires}_l{ll}_{opts}_{sector}_TEP.log",
+    threads: 1
+    resources:
+        mem_mb=5000,
+        walltime=config["walltime"].get("plotting", "00:30:00"),
+    script:
+        "../scripts/plot_comparison.py"

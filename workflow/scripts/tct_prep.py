@@ -1,6 +1,25 @@
 """Prepared TCT for CH2 Project."""
+import pandas as pd
 import pypsa
 from _helpers import configure_logging
+
+
+def prep_busmap():
+    bm = pd.read_csv(snakemake.input.lr_busmap)
+    busmap_to_buses = {}
+
+    for _, row in bm.iterrows():
+        busmap_val = row["busmap"]
+        bus_val = row["Bus"]
+
+        if busmap_val in busmap_to_buses:
+            busmap_to_buses[busmap_val].append(bus_val)
+        else:
+            busmap_to_buses[busmap_val] = [bus_val]
+
+    # Convert lists to comma-separated strings
+    busmap_to_buses_str = {k: ", ".join(v) for k, v in busmap_to_buses.items()}
+    return busmap_to_buses_str
 
 
 def clean_statistics_csv(df, output_file):
@@ -12,7 +31,10 @@ def clean_statistics_csv(df, output_file):
     df = df[~df["component"].isin(["Load", "Line"])]
 
     # Assign the second column the name 'region' and take only the first 3 characters
-    df["region"] = df["region"].str[:3]
+
+    bm = prep_busmap()
+    df["region"] = df["region"].map(bm)
+    # df["region"] = df["region"].str[:3]
 
     # Use a dictionary to rename the values in the third column and assign this new column the name 'carriers'
     rename_dict = {
