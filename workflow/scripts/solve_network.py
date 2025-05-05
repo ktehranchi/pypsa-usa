@@ -1727,7 +1727,6 @@ if __name__ == "__main__":
         snakemake.params["solving"]["options"]["remove_kvl"] = False
         lowres_gens = pd.read_csv(snakemake.input.lowres_gens, index_col=0)
 
-
     if "sector_opts" in snakemake.wildcards.keys():
         opts += "-" + snakemake.wildcards.sector_opts
     opts = [o for o in opts.split("-") if o != ""]
@@ -1757,13 +1756,12 @@ if __name__ == "__main__":
         n.links.p_nom_extendable = links_extensible_mask
         n.lines.s_nom_extendable = True
 
-
     if "mapping" in snakemake.params.keys():
         # original p_nom values
         og_pnom = n.generators["p_nom"].copy()
         og_pnom_extendable = n.generators["p_nom_extendable"].copy()
         # constrain existing gens according to low_res decision
-        existing_gens = lowres_gens[lowres_gens.index.str.contains("existing")] 
+        existing_gens = lowres_gens[lowres_gens.index.str.contains("existing")]
         n.generators.loc[existing_gens.index, "p_nom"] = existing_gens["p_nom_opt"]
         n.generators.loc[existing_gens.index, "p_nom_extendable"] = False
 
@@ -1782,9 +1780,9 @@ if __name__ == "__main__":
 
     if "mapping" in snakemake.params.keys():
         # set p_nom to original values
-        n.generators["p_nom"] = og_pnom
+        n.generators.loc[og_pnom.index, "p_nom"] = og_pnom
         # set p_nom_extendable to original values
-        n.generators["p_nom_extendable"] = og_pnom_extendable
+        n.generators.loc[og_pnom_extendable.index, "p_nom_extendable"] = og_pnom_extendable
 
     n.meta = dict(snakemake.config, **dict(wildcards=dict(snakemake.wildcards)))
     n.export_to_netcdf(snakemake.output[0])

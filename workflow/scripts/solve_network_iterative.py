@@ -134,7 +134,7 @@ def add_load_shedding_generators(n, load_shedding):
             bus=buses_i,
             carrier="load",
             sign=1e-3,  # Adjust sign to measure p and p_nom in kW instead of MW
-            marginal_cost= 1e5,  # $/kwh
+            marginal_cost=1e5,  # $/kwh
             p_nom=4e6,  # kW
         )
 
@@ -815,6 +815,7 @@ def add_operational_reserve_margin(n, sns, config):
 
     n.model.add_constraints(lhs <= rhs, name="Generator-p-reserve-upper")
 
+
 def extra_functionality(n, snapshots):
     """
     Collects supplementary constraints which will be passed to
@@ -892,6 +893,41 @@ def solve_network(n, config, solving, opts="", **kwargs):
     return n
 
 
+def track_metrics(net, iter_num, expansion_type):
+    """Helper function to collect metrics at each iteration."""
+    # Get optimal capacity statistics
+    capacity_stats = net.statistics.optimal_capacity()
+    lv0_stats = capacity_stats.groupby(level=0).sum()
+    capacity_stats = capacity_stats.droplevel(0)
+    capacity_stats.fillna(0, inplace=True)
+
+    supp_stats = net.statistics.supply()
+    supp_stats = supp_stats.droplevel(0)
+    supp_stats.fillna(0, inplace=True)
+
+    opex = net.statistics.opex().groupby(level=0).sum() / 1e6
+    capex = net.statistics.capex().groupby(level=0).sum() / 1e6
+    # append 'capex' and 'opex' to the metrics index names strings
+    capex.index = capex.index.map(lambda x: x + "_capex")
+    opex.index = opex.index.map(lambda x: x + "_opex")
+    lv0_stats.index = lv0_stats.index.map(lambda x: x + "_capacities")
+    capacity_stats.index = capacity_stats.index.map(lambda x: x + "_capacity")
+    supp_stats.index = supp_stats.index.map(lambda x: x + "_supply")
+
+    # Create a dictionary for the metrics
+    return {
+        "iteration": iter_num,
+        "expansion_type": expansion_type,
+        "objective": (net.objective + net.objective_constant) / 1e9,
+        # unpack the stats to dicts
+        **capex[net.investment_periods[0]].to_dict(),
+        **opex[net.investment_periods[0]].to_dict(),
+        **lv0_stats[net.investment_periods[0]].to_dict(),
+        **capacity_stats[net.investment_periods[0]].to_dict(),
+        **supp_stats[net.investment_periods[0]].to_dict(),
+    }
+
+
 def solve_network_iterative(n, config, solving, opts="", **kwargs):
     """
     Iteratively solves the network alternating between Generation Expansion and
@@ -900,42 +936,19 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
     logger.info("Solving network iteratively")
     metrics = []
 
+    new_metrics = track_metrics(n, 0, "Base")
+    metrics.append(new_metrics)
+    logger.info(f"New Metrics: {new_metrics}")
+
     # Remove load shedding and global constraints
     load_shedding_gens = n.generators.query("carrier == 'load'")
-    if not load_shedding_gens.empty: # and not config["solving"]["options"]["load_shedding"]:
+    if not load_shedding_gens.empty:  # and not config["solving"]["options"]["load_shedding"]:
         n.mremove("Generator", load_shedding_gens.index)
     n.global_constraints.drop(n.global_constraints.index, inplace=True)
 
     gens_extensible_mask = n.generators.p_nom_extendable
     storage_extensible_mask = n.storage_units.p_nom_extendable
     links_extensible_mask = n.links.p_nom_extendable
-
-    def track_metrics(net, iter_num, expansion_type):
-        """Helper function to collect metrics at each iteration."""
-        # Get optimal capacity statistics
-        capacity_stats = net.statistics.optimal_capacity()
-        lv0_stats = capacity_stats.groupby(level=0).sum()
-        capacity_stats = capacity_stats.droplevel(0)
-        capacity_stats.fillna(0, inplace=True)
-
-        opex = net.statistics.opex().groupby(level=0).sum() / 1e6
-        capex = net.statistics.capex().groupby(level=0).sum() / 1e6
-        # append 'capex' and 'opex' to the metrics index names strings
-        capex.index = capex.index.map(lambda x: x + "_capex")
-        opex.index = opex.index.map(lambda x: x + "_opex")
-        lv0_stats.index = lv0_stats.index.map(lambda x: x + " _summary_caps")
-
-        # Create a dictionary for the metrics
-        return {
-            "iteration": iter_num,
-            "expansion_type": expansion_type,
-            "objective": net.objective + net.objective_constant,
-            # unpack the stats to dicts
-            **capex[net.investment_periods[0]].to_dict(),
-            **opex[net.investment_periods[0]].to_dict(),
-            **lv0_stats[net.investment_periods[0]].to_dict(),
-            **capacity_stats[net.investment_periods[0]].to_dict(),
-        }
 
     # Store original capacities
     original_p_nom_gens = n.generators.p_nom.copy()
@@ -948,10 +961,6 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
     n.links.p_nom_min = n.links.p_nom
     n.lines.s_nom_max = 1e8
     n.links.p_nom_max = 1e8
-
-    new_metrics = track_metrics(n, 0, "Base")
-    metrics.append(new_metrics)
-    logger.info(f"New Metrics: {new_metrics}")
 
     for iter_ in range(1, config["iterative_solving"]["max_iter"] + 1):
         logger.info(f"SOLUTION ITERATION {iter_}")
@@ -1076,7 +1085,7 @@ if __name__ == "__main__":
         log_fn=snakemake.log.solver,
     )
 
-    metrics.to_csv(snakemake.output.iterative_metrics)
+    metrics.T.to_csv(snakemake.output.iterative_metrics)
 
     n.meta = dict(snakemake.config, **dict(wildcards=dict(snakemake.wildcards)))
     n.export_to_netcdf(snakemake.output[0])
