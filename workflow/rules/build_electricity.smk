@@ -546,6 +546,7 @@ rule build_fuel_prices:
     retries: 3
     resources:
         mem_mb=30000,
+        walltime=config_provider("walltime", "add_demand", default="00:20:00"),
     script:
         "../scripts/build_fuel_prices.py"
 
@@ -731,7 +732,7 @@ rule cluster_network:
         "benchmarks/cluster_network/{interconnect}/elec_s{simpl}_c{clusters}"
     threads: 1
     resources:
-        walltime=config_provider("walltime", "cluster_network"),
+        walltime=config_provider("walltime", "cluster_network", default="01:30:00"),
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     script:
         "../scripts/cluster_network.py"

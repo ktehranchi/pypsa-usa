@@ -518,7 +518,7 @@ class ScenarioPlotter:
         fig, axes = plt.subplots(
             nrows=len(planning_horizons),
             ncols=1,
-            figsize=(8, 1.2 * len(planning_horizons) + 0.2 * len(scenarios)),
+            figsize=(8, 1.2 * len(planning_horizons) + 0.2 * len(scenarios) + 0.5),
             sharex=True,
         )
         axes = np.atleast_1d(axes)  # Ensure axes is iterable for single horizon
@@ -715,7 +715,7 @@ class ScenarioPlotter:
         fig, axes = plt.subplots(
             nrows=len(planning_horizons),
             ncols=1,
-            figsize=(8, 1.5 * len(planning_horizons) + 0.2 * len(stats)),
+            figsize=(8, 1.5 * len(planning_horizons) + 0.4 * len(stats)),
             sharex=True,
         )
         if len(planning_horizons) == 1:
@@ -945,7 +945,7 @@ class TablePlotter:
         plt.style.use(self.config.get("plot_style", "default"))
 
         # Custom figure size
-        plt.rcParams["figure.figsize"] = self.config.get("figure_size", [10, 6])
+        plt.rcParams["figure.figsize"] = self.config.get("figure_size", [10, 8])
 
         # Custom font sizes
         font_sizes = self.config.get("font_sizes", {})

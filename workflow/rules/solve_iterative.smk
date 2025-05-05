@@ -186,6 +186,8 @@ rule solve_network_mapping:
         pop_layout=pop_layout_input,
         mapping_csv=RESULTS
         + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/tct_inputs.csv",
+        lowres_gens=RESULTS
+        + "{interconnect}/figures/s{simpl}_cluster_{clusters}/l{ll}_{opts}_{sector}/statistics/generators.csv",
     output:
         network=RESULTS
         + "{interconnect}/networks/elec_s{simpl}_cl{clusters}_ch{clusters_hires}_ec_l{ll}_{opts}_{sector}_mapped.nc",

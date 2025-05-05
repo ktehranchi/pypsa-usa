@@ -118,6 +118,27 @@ def add_land_use_constraints(n):
         )
 
 
+def add_load_shedding_generators(n, load_shedding):
+    load_shedding_gens = n.generators.query("carrier == 'load'")
+    if load_shedding and load_shedding_gens.empty:
+        # intersect between macroeconomic and surveybased willingness to pay
+        # http://journal.frontiersin.org/article/10.3389/fenrg.2015.00055/full
+        # TODO: retrieve color and nice name from config
+        n.add("Carrier", "load", color="#dd2e23", nice_name="Load shedding")
+        buses_i = n.buses.query("carrier == 'AC'").index
+
+        n.madd(
+            "Generator",
+            buses_i,
+            " load",
+            bus=buses_i,
+            carrier="load",
+            sign=1e-3,  # Adjust sign to measure p and p_nom in kW instead of MW
+            marginal_cost= 1e5,  # $/kwh
+            p_nom=4e6,  # kW
+        )
+
+
 def prepare_network(
     n,
     solve_opts=None,
@@ -131,27 +152,7 @@ def prepare_network(
             df = df.where(df > solve_opts["clip_p_max_pu"], other=0.0)
 
     load_shedding = solve_opts.get("load_shedding")
-    load_shedding_gens = n.generators.query("carrier == 'load'")
-    if load_shedding and load_shedding_gens.empty:
-        # intersect between macroeconomic and surveybased willingness to pay
-        # http://journal.frontiersin.org/article/10.3389/fenrg.2015.00055/full
-        # TODO: retrieve color and nice name from config
-        n.add("Carrier", "load", color="#dd2e23", nice_name="Load shedding")
-        buses_i = n.buses.query("carrier == 'AC'").index
-        if not np.isscalar(load_shedding):
-            # TODO: do not scale via sign attribute (use Eur/MWh instead of Eur/kWh)
-            load_shedding = 1e2  # Eur/kWh
-
-        n.madd(
-            "Generator",
-            buses_i,
-            " load",
-            bus=buses_i,
-            carrier="load",
-            sign=1e-3,  # Adjust sign to measure p and p_nom in kW instead of MW
-            marginal_cost=load_shedding,  # Eur/kWh
-            p_nom=1e9,  # kW
-        )
+    add_load_shedding_generators(n, load_shedding)
 
     if solve_opts.get("noisy_costs"):
         for t in n.iterate_components():
@@ -814,16 +815,6 @@ def add_operational_reserve_margin(n, sns, config):
 
     n.model.add_constraints(lhs <= rhs, name="Generator-p-reserve-upper")
 
-
-# def remove_kvl(n):
-#     """
-#     Removes Kirchhoff's voltage law (KVL) constraints.
-
-#     Function implemented for Kamran's research, and not added to default configs.
-#     """
-#     n.model.constraints.remove("Kirchhoff-Voltage-Law")
-
-
 def extra_functionality(n, snapshots):
     """
     Collects supplementary constraints which will be passed to
@@ -846,8 +837,6 @@ def extra_functionality(n, snapshots):
     reserve = config["electricity"].get("operational_reserve", {})
     if reserve.get("activate"):
         add_operational_reserve_margin(n, snapshots, config)
-    # if config.get("solving", {}).get("options", {}).get("remove_kvl", False):
-    #     remove_kvl(n)
     add_land_use_constraints(n)
 
 
@@ -855,8 +844,7 @@ def solve_network(n, config, solving, opts="", **kwargs):
     set_of_options = solving["solver"]["options"]
     cf_solving = solving["options"]
 
-    if len(n.investment_periods) > 1:
-        kwargs["multi_investment_periods"] = config["foresight"] == "perfect"
+    kwargs["multi_investment_periods"] = config["foresight"] == "perfect"
 
     kwargs["solver_options"] = solving["solver_options"][set_of_options] if set_of_options else {}
     kwargs["solver_name"] = solving["solver"]["name"]
@@ -914,7 +902,7 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
 
     # Remove load shedding and global constraints
     load_shedding_gens = n.generators.query("carrier == 'load'")
-    if not load_shedding_gens.empty and not config["solving"]["options"]["load_shedding"]:
+    if not load_shedding_gens.empty: # and not config["solving"]["options"]["load_shedding"]:
         n.mremove("Generator", load_shedding_gens.index)
     n.global_constraints.drop(n.global_constraints.index, inplace=True)
 
@@ -922,16 +910,16 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
     storage_extensible_mask = n.storage_units.p_nom_extendable
     links_extensible_mask = n.links.p_nom_extendable
 
-    def track_metrics(iter_num, expansion_type):
+    def track_metrics(net, iter_num, expansion_type):
         """Helper function to collect metrics at each iteration."""
         # Get optimal capacity statistics
-        capacity_stats = n.statistics.optimal_capacity()
+        capacity_stats = net.statistics.optimal_capacity()
         lv0_stats = capacity_stats.groupby(level=0).sum()
         capacity_stats = capacity_stats.droplevel(0)
         capacity_stats.fillna(0, inplace=True)
 
-        opex = n.statistics.opex().groupby(level=0).sum() / 1e6
-        capex = n.statistics.capex().groupby(level=0).sum() / 1e6
+        opex = net.statistics.opex().groupby(level=0).sum() / 1e6
+        capex = net.statistics.capex().groupby(level=0).sum() / 1e6
         # append 'capex' and 'opex' to the metrics index names strings
         capex.index = capex.index.map(lambda x: x + "_capex")
         opex.index = opex.index.map(lambda x: x + "_opex")
@@ -941,12 +929,12 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
         return {
             "iteration": iter_num,
             "expansion_type": expansion_type,
-            "objective": n.objective + n.objective_constant,
+            "objective": net.objective + net.objective_constant,
             # unpack the stats to dicts
-            **capex[n.investment_periods[0]].to_dict(),
-            **opex[n.investment_periods[0]].to_dict(),
-            **lv0_stats[n.investment_periods[0]].to_dict(),
-            **capacity_stats[n.investment_periods[0]].to_dict(),
+            **capex[net.investment_periods[0]].to_dict(),
+            **opex[net.investment_periods[0]].to_dict(),
+            **lv0_stats[net.investment_periods[0]].to_dict(),
+            **capacity_stats[net.investment_periods[0]].to_dict(),
         }
 
     # Store original capacities
@@ -961,7 +949,7 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
     n.lines.s_nom_max = 1e8
     n.links.p_nom_max = 1e8
 
-    new_metrics = track_metrics(0, "Base")
+    new_metrics = track_metrics(n, 0, "Base")
     metrics.append(new_metrics)
     logger.info(f"New Metrics: {new_metrics}")
 
@@ -980,7 +968,7 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
 
         # Solve the network, track metrics
         n = solve_network(n, config, solving, opts, **kwargs)
-        new_metrics = track_metrics(iter_, "Transmission")
+        new_metrics = track_metrics(n, iter_, "Transmission")
         metrics.append(new_metrics)
         logger.info(f"New Metrics: {new_metrics}")
 
@@ -1001,7 +989,7 @@ def solve_network_iterative(n, config, solving, opts="", **kwargs):
 
         # Solve the network, track metrics
         n = solve_network(n, config, solving, opts, **kwargs)
-        new_metrics = track_metrics(iter_, "Generation")
+        new_metrics = track_metrics(n, iter_, "Generation")
         metrics.append(new_metrics)
         logger.info(f"New Metrics: {new_metrics}")
 
@@ -1057,8 +1045,8 @@ if __name__ == "__main__":
     opts = snakemake.wildcards.opts
 
     if "iterative" in snakemake.params.keys():
-        snakemake.config["solving"]["options"]["load_shedding"] = False
-        snakemake.params["solving"]["options"]["load_shedding"] = False
+        snakemake.config["solving"]["options"]["load_shedding"] = True
+        snakemake.params["solving"]["options"]["load_shedding"] = True
 
     if "sector_opts" in snakemake.wildcards.keys():
         opts += "-" + snakemake.wildcards.sector_opts
