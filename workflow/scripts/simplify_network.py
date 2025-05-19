@@ -218,7 +218,6 @@ if __name__ == "__main__":
     n.generators = n.generators.drop(
         columns=["ba_eia", "ba_ads"],
     )  # temp added these columns and need to drop for workflow
-
     n = convert_to_voltage_level(n, 230)
     n, trafo_map = remove_transformers(n)
 
@@ -265,6 +264,9 @@ if __name__ == "__main__":
         ]
         for attr in attr:
             n.storage_units_t[attr] = n.storage_units_t[attr].iloc[:, 0:0]
+
+        # Patch for bug where pypsa io clustering will add incorrect build_years for new gens
+        n.generators.build_year += 0.001
 
         clustering = clustering_for_n_clusters(
             n,
