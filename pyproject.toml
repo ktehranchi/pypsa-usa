@@ -3,13 +3,13 @@ requires = ["setuptools >= 61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "PyPSA-USA"
+name = "pypsa_usa"
 dynamic = ["version"]
 authors = [
     { name = "Kamran Tehranchi", email = "ktehranchi@stanford.edu" },
     { name = "Trevor Barnes", email = "trevor_barnes@sfu.ca" },
 ]
-description = "PyPSA-USA"
+description = "pypsa_usa"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -84,8 +84,14 @@ dev = [
     "pytest",
 ]
 
-[tool.setuptools.package-dir]
-myproj = "workflow/scripts"
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = {find = {where = ["src"]}}
+
+[tool.setuptools.package-data]
+"pypsa_usa" = [
+    "config/*.yaml",
+]
 
 [tool.ruff]
 line-length = 120

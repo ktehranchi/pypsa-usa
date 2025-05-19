@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pypsa
 import seaborn as sns
-from _helpers import configure_logging, mock_snakemake
 from constants import Month
 from constants_sector import (
     AirTransport,
@@ -40,7 +39,8 @@ from summary_sector import (  # get_load_name_per_sector,
     get_storage_level_timeseries_carrier,
 )
 
-from pypsa_usa.sectors.add_electricity import sanitize_carriers
+from ..sectors.add_electricity import sanitize_carriers
+from .utils.helpers import configure_logging, mock_snakemake
 
 logger = logging.getLogger(__name__)
 

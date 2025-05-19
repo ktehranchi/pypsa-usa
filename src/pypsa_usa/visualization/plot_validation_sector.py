@@ -9,7 +9,6 @@ from typing import Any
 import matplotlib.pyplot as plt
 import pandas as pd
 import pypsa
-from _helpers import configure_logging, mock_snakemake
 from constants import STATE_2_CODE
 from plot_statistics import create_title
 from summary_natural_gas import get_historical_ng_prices, get_ng_price
@@ -24,7 +23,8 @@ from summary_sector import (
     get_transport_consumption_by_mode,
 )
 
-from pypsa_usa.sectors.add_electricity import sanitize_carriers
+from ..sectors.add_electricity import sanitize_carriers
+from .utils.helpers import configure_logging, mock_snakemake
 
 logger = logging.getLogger(__name__)
 

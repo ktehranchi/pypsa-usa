@@ -32,17 +32,17 @@ import numpy as np
 import pandas as pd
 import pypsa
 import seaborn as sns
-from _helpers import configure_logging
 from cartopy import crs as ccrs
 from pypsa.plot import add_legend_circles, add_legend_lines, add_legend_patches
-from summary import (
+
+from ..sectors.add_electricity import sanitize_carriers
+from ..utils.helpers import configure_logging
+from .summary import (
     get_capacity_base,
     get_capacity_brownfield,
     get_demand_base,
     get_node_emissions_timeseries,
 )
-
-from pypsa_usa.sectors.add_electricity import sanitize_carriers
 
 logger = logging.getLogger(__name__)
 
@@ -581,7 +581,7 @@ def plot_lmp_map(network: pypsa.Network, save: str, **wildcards):
 
 if __name__ == "__main__":
     if "snakemake" not in globals():
-        from _helpers import mock_snakemake
+        from .utils.helpers import mock_snakemake
 
         snakemake = mock_snakemake(
             "plot_network_maps",

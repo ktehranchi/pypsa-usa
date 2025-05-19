@@ -12,7 +12,6 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pypsa
-from _helpers import configure_logging, get_snapshots, load_costs
 from build_electricity_sector import build_electricty
 from build_emission_tracking import build_ch4_tracking, build_co2_tracking
 from build_heat import build_heat
@@ -32,7 +31,8 @@ from constants_sector import RoadTransport
 from eia import FuelCosts
 from shapely.geometry import Point
 
-from pypsa_usa.sectors.add_electricity import sanitize_carriers
+from .add_electricity import sanitize_carriers
+from .utils.helpers import configure_logging, get_snapshots, load_costs
 
 logger = logging.getLogger(__name__)
 
@@ -507,7 +507,7 @@ def get_pwr_co2_intensity(carrier: str, costs: pd.DataFrame) -> float:
 
 if __name__ == "__main__":
     if "snakemake" not in globals():
-        from _helpers import mock_snakemake
+        from .utils.helpers import mock_snakemake
 
         snakemake = mock_snakemake(
             "add_sectors",

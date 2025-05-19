@@ -39,9 +39,11 @@ import numpy as np
 import pandas as pd
 import pypsa
 import seaborn as sns
-from _helpers import configure_logging
-from plot_network_maps import get_color_palette
-from summary import (
+
+from ..sectors.add_electricity import sanitize_carriers
+from ..utils.helpers import configure_logging
+from .plot_network_maps import get_color_palette
+from .summary import (
     get_demand_timeseries,
     get_energy_timeseries,
     get_fuel_costs,
@@ -49,8 +51,6 @@ from summary import (
     get_node_emissions_timeseries,
     get_tech_emissions_timeseries,
 )
-
-from pypsa_usa.sectors.add_electricity import sanitize_carriers
 
 logger = logging.getLogger(__name__)
 
@@ -902,7 +902,7 @@ def plot_fuel_costs(
 
 if __name__ == "__main__":
     if "snakemake" not in globals():
-        from _helpers import mock_snakemake
+        from .utils.helpers import mock_snakemake
 
         snakemake = mock_snakemake(
             "plot_statistics",
