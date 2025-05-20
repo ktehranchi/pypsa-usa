@@ -39,7 +39,7 @@ from summary_sector import (  # get_load_name_per_sector,
     get_storage_level_timeseries_carrier,
 )
 
-from ..sectors.add_electricity import sanitize_carriers
+from ..core.add_electricity import sanitize_carriers
 from .utils.helpers import configure_logging, mock_snakemake
 
 logger = logging.getLogger(__name__)

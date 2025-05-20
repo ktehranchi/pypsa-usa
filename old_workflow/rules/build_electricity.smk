@@ -23,12 +23,12 @@ rule build_shapes:
         reeds_shapes=RESOURCES + "{interconnect}/Geospatial/reeds_shapes.geojson",
         county_shapes=RESOURCES + "{interconnect}/Geospatial/county_shapes.geojson",
     log:
-        "logs/build_shapes/{interconnect}.log",
+        LOGS + "build_shapes/{interconnect}.log",
     threads: 1
     resources:
         mem_mb=5000,
     script:
-        "../build/build_shapes.py"
+        "../scripts/build_shapes.py"
 
 
 rule build_base_network:
@@ -54,12 +54,12 @@ rule build_base_network:
         lines_gis=RESOURCES + "{interconnect}/lines_gis.csv",
         network=RESOURCES + "{interconnect}/elec_base_network.nc",
     log:
-        "logs/create_network/{interconnect}.log",
+        LOGS + "create_network/{interconnect}.log",
     threads: 1
     resources:
         mem_mb=5000,
     script:
-        "../build/build_base_network.py"
+        "../scripts/build_base_network.py"
 
 
 rule build_bus_regions:
@@ -83,12 +83,12 @@ rule build_bus_regions:
         regions_offshore=RESOURCES
         + "{interconnect}/Geospatial/regions_offshore.geojson",
     log:
-        "logs/build_bus_regions/{interconnect}.log",
+        LOGS + "build_bus_regions/{interconnect}.log",
     threads: 1
     resources:
         mem_mb=3000,
     script:
-        "../build/build_bus_regions.py"
+        "../scripts/build_bus_regions.py"
 
 
 rule build_cost_data:
@@ -110,7 +110,7 @@ rule build_cost_data:
     resources:
         mem_mb=5000,
     script:
-        "../build/build_cost_data.py"
+        "../scripts/build_cost_data.py"
 
 
 ATLITE_NPROCESSES = config["atlite"].get("nprocesses", 4)
@@ -130,14 +130,14 @@ if config["enable"].get("build_cutout", False):
         output:
             protected("cutouts/" + CDIR + "{interconnect}_{cutout}.nc"),
         log:
-            "logs/" + CDIR + "build_cutout/{interconnect}_{cutout}.log",
+            LOGS + "" + CDIR + "build_cutout/{interconnect}_{cutout}.log",
         benchmark:
             "benchmarks/" + CDIR + "build_cutout_{interconnect}_{cutout}"
         threads: ATLITE_NPROCESSES
         resources:
             mem_mb=ATLITE_NPROCESSES * 5000,
         script:
-            "../build/build_cutout.py"
+            "../scripts/build_cutout.py"
 
 
 rule build_renewable_profiles:
@@ -196,7 +196,7 @@ rule build_renewable_profiles:
     wildcard_constraints:
         technology="(?!hydro|EGS).*",  # Any technology other than hydro
     script:
-        "../build/build_renewable_profiles.py"
+        "../scripts/build_renewable_profiles.py"
 
 
 # eastern broken out just to aviod awful formatting issues
@@ -334,7 +334,7 @@ rule build_electrical_demand:
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 70000) * attempt * 2,
     script:
-        "../build/build_demand.py"
+        "../scripts/build_demand.py"
 
 
 rule build_sector_demand:
@@ -367,7 +367,7 @@ rule build_sector_demand:
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 70000) * attempt * 2,
     script:
-        "../build/build_demand.py"
+        "../scripts/build_demand.py"
 
 
 rule build_transport_road_demand:
@@ -403,7 +403,7 @@ rule build_transport_road_demand:
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 70000) * attempt * 2,
     script:
-        "../build/build_demand.py"
+        "../scripts/build_demand.py"
 
 
 rule build_transport_other_demand:
@@ -428,7 +428,7 @@ rule build_transport_other_demand:
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 70000) * attempt * 2,
     script:
-        "../build/build_demand.py"
+        "../scripts/build_demand.py"
 
 
 def demand_to_add(wildcards):
@@ -501,7 +501,7 @@ rule add_demand:
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 70000) * attempt * 2,
     script:
-        "../build/add_demand.py"
+        "../scripts/add_demand.py"
 
 
 def ba_gas_dynamic_fuel_price_files(wildcards):
@@ -532,7 +532,7 @@ rule build_fuel_prices:
     resources:
         mem_mb=30000,
     script:
-        "../build/build_fuel_prices.py"
+        "../scripts/build_fuel_prices.py"
 
 
 def dynamic_fuel_price_files(wildcards):
@@ -561,11 +561,11 @@ rule build_powerplants:
     output:
         powerplants=RESOURCES + "powerplants.csv",
     log:
-        "logs/build_powerplants.log",
+        LOGS + "build_powerplants.log",
     resources:
         mem_mb=30000,
     script:
-        "../build/build_powerplants.py"
+        "../scripts/build_powerplants.py"
 
 
 rule add_electricity:
@@ -630,7 +630,7 @@ rule add_electricity:
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 400000) * attempt * 2,
     script:
-        "../build/add_electricity.py"
+        "../scripts/add_electricity.py"
 
 
 ################# ----------- Rules to Aggregate & Simplify Network ---------- #################
@@ -657,12 +657,12 @@ rule simplify_network:
         regions_offshore=RESOURCES
         + "{interconnect}/Geospatial/regions_offshore_s{simpl}.geojson",
     log:
-        "logs/simplify_network/{interconnect}/elec_s{simpl}.log",
+        LOGS + "simplify_network/{interconnect}/elec_s{simpl}.log",
     threads: 1
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 1.5,
     script:
-        "../build/simplify_network.py"
+        "../scripts/simplify_network.py"
 
 
 rule cluster_network:
@@ -708,14 +708,14 @@ rule cluster_network:
         busmap=RESOURCES + "{interconnect}/busmap_s{simpl}_{clusters}.csv",
         linemap=RESOURCES + "{interconnect}/linemap_s{simpl}_{clusters}.csv",
     log:
-        "logs/cluster_network/{interconnect}/elec_s{simpl}_c{clusters}.log",
+        LOGS + "cluster_network/{interconnect}/elec_s{simpl}_c{clusters}.log",
     benchmark:
         "benchmarks/cluster_network/{interconnect}/elec_s{simpl}_c{clusters}"
     threads: 1
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     script:
-        "../build/cluster_network.py"
+        "../scripts/cluster_network.py"
 
 
 rule add_extra_components:
@@ -741,14 +741,14 @@ rule add_extra_components:
     output:
         RESOURCES + "{interconnect}/elec_s{simpl}_c{clusters}_ec.nc",
     log:
-        "logs/add_extra_components/{interconnect}/elec_s{simpl}_c{clusters}_ec.log",
+        LOGS + "add_extra_components/{interconnect}/elec_s{simpl}_c{clusters}_ec.log",
     threads: 1
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     group:
         "prepare"
     script:
-        "../build/add_extra_components.py"
+        "../scripts/add_extra_components.py"
 
 
 rule prepare_network:
@@ -781,13 +781,14 @@ rule prepare_network:
     output:
         RESOURCES + "{interconnect}/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}.nc",
     log:
-        solver="logs/prepare_network/{interconnect}/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}.log",
+        solver=LOGS
+        + "prepare_network/{interconnect}/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}.log",
     threads: 1
     resources:
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
     group:
         "prepare"
     log:
-        "logs/prepare_network",
+        LOGS + "prepare_network",
     script:
-        "../build/prepare_network.py"
+        "../scripts/prepare_network.py"

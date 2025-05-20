@@ -48,9 +48,9 @@ rule retrieve_zenodo_databundles:
     resources:
         mem_mb=5000,
     log:
-        "logs/retrieve/retrieve_databundles.log",
+        "../logs/retrieve/retrieve_databundles.log",
     script:
-        "../scripts/retrieve_databundles.py"
+        "../retrieve/retrieve_databundles.py"
 
 
 def efs_databundle(wildcards):
@@ -70,9 +70,9 @@ rule retrieve_nrel_efs_data:
     resources:
         mem_mb=5000,
     log:
-        "logs/retrieve/retrieve_efs_{efs_case}_{efs_speed}.log",
+        "../logs/retrieve/retrieve_efs_{efs_case}_{efs_speed}.log",
     script:
-        "../scripts/retrieve_databundles.py"
+        "../retrieve/retrieve_databundles.py"
 
 
 sector_datafiles = [
@@ -101,7 +101,7 @@ rule retrieve_sector_databundle:
         LOGS + "retrieve_sector_databundle.log",
     retries: 2
     script:
-        "../scripts/retrieve_databundles.py"
+        "../retrieve/retrieve_databundles.py"
 
 
 DATAFILES_GE = [
@@ -119,7 +119,7 @@ rule retrieve_gridemissions_data:
     resources:
         mem_mb=5000,
     script:
-        "../scripts/retrieve_gridemissions_data.py"
+        "../retrieve/retrieve_gridemissions_data.py"
 
 
 RESSTOCK_FILES = [
@@ -162,7 +162,7 @@ rule retrieve_res_eulp:
         expand(DATA + "eulp/res/{{state}}/{profile}.csv", profile=RESSTOCK_FILES),
         DATA + "eulp/res/{state}.csv",
     script:
-        "../scripts/retrieve_eulp.py"
+        "../retrieve/retrieve_eulp.py"
 
 
 rule retrieve_com_eulp:
@@ -176,7 +176,7 @@ rule retrieve_com_eulp:
         expand(DATA + "eulp/com/{{state}}/{profile}.csv", profile=COMSTOCK_FILES),
         DATA + "eulp/com/{state}.csv",
     script:
-        "../scripts/retrieve_eulp.py"
+        "../retrieve/retrieve_eulp.py"
 
 
 rule retrieve_ship_raster:
@@ -230,7 +230,7 @@ rule retrieve_caiso_data:
     resources:
         mem_mb=2000,
     script:
-        "../scripts/retrieve_caiso_data.py"
+        "../retrieve/retrieve_caiso_data.py"
 
 
 rule retrieve_pudl:
@@ -242,7 +242,7 @@ rule retrieve_pudl:
     resources:
         mem_mb=5000,
     script:
-        "../scripts/retrieve_pudl.py"
+        "../retrieve/retrieve_pudl.py"
 
 
 if "EGS" in config["electricity"]["extendable_carriers"]["Generator"]:
@@ -259,4 +259,4 @@ if "EGS" in config["electricity"]["extendable_carriers"]["Generator"]:
         log:
             LOGS + "retrieve_EGS_{interconnect}.log",
         script:
-            "../scripts/retrieve_egs.py"
+            "../retrieve/retrieve_egs.py"

@@ -40,7 +40,7 @@ import pandas as pd
 import pypsa
 import seaborn as sns
 
-from ..sectors.add_electricity import sanitize_carriers
+from ..core.add_electricity import sanitize_carriers
 from ..utils.helpers import configure_logging
 from .plot_network_maps import get_color_palette
 from .summary import (

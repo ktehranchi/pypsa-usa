@@ -43,10 +43,11 @@ def setup_workflow_directories(base_dir=None):
 
 def run_workflow(
     config_file=None,
-    target=None,
+    until=None,
     cores=1,
     dryrun=False,
     base_dir=None,
+    target="all",
 ):
     """
     Run the PyPSA-USA workflow using Snakemake.
@@ -86,14 +87,14 @@ def run_workflow(
         "dryrun": dryrun,
         "workdir": str(workflow_dir),
         "configfiles": [str(config_file)] if config_file else None,
-        "targets": [target] if target else None,
+        "targets": [target],
+        "until": [until] if until else None,
     }
-
     # Run the workflow
     return snakemake.snakemake(**snakemake_args)
 
 
-def prepare_network(config_file=None, cores=1, dryrun=False, base_dir=None):
+def load_network(config_file=None, cores=1, dryrun=False, base_dir=None):
     """
     Prepare the network using the workflow.
 
@@ -115,7 +116,7 @@ def prepare_network(config_file=None, cores=1, dryrun=False, base_dir=None):
     """
     return run_workflow(
         config_file=config_file,
-        target="prepare_network",
+        until="prepare_network",
         cores=cores,
         dryrun=dryrun,
         base_dir=base_dir,
@@ -144,36 +145,7 @@ def solve_network(config_file=None, cores=1, dryrun=False, base_dir=None):
     """
     return run_workflow(
         config_file=config_file,
-        target="solve_network",
-        cores=cores,
-        dryrun=dryrun,
-        base_dir=base_dir,
-    )
-
-
-def plot_results(config_file=None, cores=1, dryrun=False, base_dir=None):
-    """
-    Generate plots using the workflow.
-
-    Parameters
-    ----------
-    config_file : str or Path, optional
-        Path to the config file. If None, uses default config.
-    cores : int, default=1
-        Number of CPU cores to use.
-    dryrun : bool, default=False
-        If True, only show what would be done without actually doing it.
-    base_dir : str or Path, optional
-        Base directory for the workflow. If None, uses the current working directory.
-
-    Returns
-    -------
-    bool
-        True if the plots were generated successfully.
-    """
-    return run_workflow(
-        config_file=config_file,
-        target="plot_statistics",
+        until="solve_network",
         cores=cores,
         dryrun=dryrun,
         base_dir=base_dir,

@@ -8,7 +8,7 @@ from typing import Optional
 import pandas as pd
 import pypsa
 
-from ..data.eia import ElectricPowerData, Emissions, Seds, TransportationDemand
+from ..retrieve.eia import ElectricPowerData, Emissions, Seds, TransportationDemand
 
 logger = logging.getLogger(__name__)
 

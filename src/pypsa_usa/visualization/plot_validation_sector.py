@@ -23,7 +23,7 @@ from summary_sector import (
     get_transport_consumption_by_mode,
 )
 
-from ..sectors.add_electricity import sanitize_carriers
+from ..core.add_electricity import sanitize_carriers
 from .utils.helpers import configure_logging, mock_snakemake
 
 logger = logging.getLogger(__name__)

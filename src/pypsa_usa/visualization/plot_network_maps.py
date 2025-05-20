@@ -35,7 +35,7 @@ import seaborn as sns
 from cartopy import crs as ccrs
 from pypsa.plot import add_legend_circles, add_legend_lines, add_legend_patches
 
-from ..sectors.add_electricity import sanitize_carriers
+from ..core.add_electricity import sanitize_carriers
 from ..utils.helpers import configure_logging
 from .summary import (
     get_capacity_base,

@@ -9,8 +9,9 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pypsa
-from cluster_network import cluster_regions, clustering_for_n_clusters
 from pypsa.clustering.spatial import get_clustering_from_busmap
+
+from src.pypsa_usa.core.cluster import cluster_regions, clustering_for_n_clusters
 
 from .utils.helpers import configure_logging, update_p_nom_max
 

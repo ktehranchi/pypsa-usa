@@ -29,6 +29,11 @@ import logging
 import numpy as np
 import pypsa
 import yaml
+from _helpers import (
+    configure_logging,
+    update_config_from_wildcards,
+    update_config_with_sector_opts,
+)
 from opts.land import add_land_use_constraints
 from opts.reserves import (
     add_ERM_constraints,
@@ -51,12 +56,6 @@ from workflow.scripts.opts.policy import (
     add_regional_co2limit,
     add_RPS_constraints,
     add_technology_capacity_target_constraints,
-)
-
-from .utils.helpers import (
-    configure_logging,
-    update_config_from_wildcards,
-    update_config_with_sector_opts,
 )
 
 logger_gurobi = logging.getLogger("gurobipy")
@@ -352,7 +351,7 @@ def solve_network(n, config, solving, opts="", **kwargs):
 
 if __name__ == "__main__":
     if "snakemake" not in globals():
-        from .utils.helpers import mock_snakemake
+        from _helpers import mock_snakemake
 
         snakemake = mock_snakemake(
             "solve_network",
