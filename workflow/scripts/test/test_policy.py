@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Fixtures
 
 
-@pytest.fixture
+@pytest.fixture()
 def policy_network(base_network):
     """
     Adapt base network for policy constraint testing (RPS, TCT, CO2 limits).
@@ -73,13 +73,13 @@ def policy_network(base_network):
     return n
 
 
-@pytest.fixture
+@pytest.fixture()
 def clustered_policy_network(policy_network):
     """Create a time-clustered version of the policy network."""
     return average_every_nhours(policy_network, "3h")
 
 
-@pytest.fixture
+@pytest.fixture()
 def co2_config():
     """Create a config dictionary for regional CO2 limit constraints."""
     return {
@@ -92,7 +92,7 @@ def co2_config():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def rps_config():
     """Create a config dictionary for RPS constraints."""
     # Create config dictionary
@@ -126,7 +126,7 @@ def rps_config():
     return config, snakemake
 
 
-@pytest.fixture
+@pytest.fixture()
 def tct_config():
     """Create a config dictionary for TCT constraints."""
     return {

@@ -1120,7 +1120,8 @@ class ReadTransportEfsAeo(ReadStrategy):
 
         # check as these are user defined
         totals = df.sum()
-        assert all(totals > 99.99) and all(totals < 100.01)
+        assert all(totals > 99.99)
+        assert all(totals < 100.01)
 
         df = df.T
         df.index.name = "vehicle"
@@ -1376,7 +1377,8 @@ class ReadTransportAeo(ReadStrategy):
 
         # check as these are user defined
         totals = df.sum()
-        assert all(totals > 99.99) and all(totals < 100.01)
+        assert all(totals > 99.99)
+        assert all(totals < 100.01)
 
         df = df.T
         df.index.name = "vehicle"

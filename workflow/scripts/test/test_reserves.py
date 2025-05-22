@@ -18,7 +18,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from opts.reserves import add_ERM_constraints, store_ERM_duals
 
 
-@pytest.fixture
+@pytest.fixture()
 def erm_config():
     """Create a config dictionary with ERM settings."""
     return {
@@ -28,7 +28,7 @@ def erm_config():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def erm_multi_region_config():
     """Create a config dictionary with ERM settings for multiple regions and different reserve margins."""
     return {
@@ -38,7 +38,7 @@ def erm_multi_region_config():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def reserve_margin_network(base_network):
     """
     Adapt base network for ERM and PRM constraint testing.

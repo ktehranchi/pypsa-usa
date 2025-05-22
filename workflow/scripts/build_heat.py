@@ -42,7 +42,7 @@ def build_heat(
 
     dynamic_costs = options.get("dynamic_costs", False)
     if dynamic_costs:
-        assert eia and year, "Must supply EIA API and costs year for dynamic fuel costs"
+        assert eia and year, "Must supply EIA API and costs year for dynamic fuel costs"  # noqa: PT018
 
     dr_config = options.get("demand_response", {})
 

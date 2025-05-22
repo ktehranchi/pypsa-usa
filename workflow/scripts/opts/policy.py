@@ -2,6 +2,7 @@ import logging  # noqa: D100
 
 import numpy as np
 import pandas as pd
+import pypsa
 from opts._helpers import filter_components, get_region_buses
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense
 
@@ -351,7 +352,7 @@ def add_RPS_constraints(n, config, sector, snakemake=None):
         )
 
 
-def add_regional_co2limit(n, config):
+def add_regional_co2limit(n: pypsa.Network, config: dict) -> None:
     """Adding regional regional CO2 Limits Specified in the config.yaml."""
     regional_co2_lims = pd.read_csv(
         config["electricity"]["regional_Co2_limits"],

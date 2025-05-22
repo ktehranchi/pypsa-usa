@@ -16,7 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 # Fixtures
 
 
-@pytest.fixture
+@pytest.fixture()
 def land_use_network(base_network):
     """
     Adapt base network for land use constraint testing.

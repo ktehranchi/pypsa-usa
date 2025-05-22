@@ -17,7 +17,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from _helpers import get_multiindex_snapshots
 
 
-@pytest.fixture
+@pytest.fixture()
 def base_network():
     """
     Create a basic test network with common components.

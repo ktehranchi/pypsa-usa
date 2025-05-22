@@ -82,6 +82,7 @@ dev = [
     "sphinx-book-theme",
     "myst-parser",
     "pytest",
+    "pandas-stubs",
 ]
 
 [tool.setuptools.package-dir]
@@ -118,6 +119,7 @@ select = [
     "D",   # pydocstyle
     "C90", # Complex code
     "I",   # isort (import sorting)
+    "PT",  # pytest
 ]
 mccabe.max-complexity = 10
 
@@ -152,3 +154,6 @@ line-ending = "auto"
 testpaths = [
     "workflow/scripts/test"
 ]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = true
