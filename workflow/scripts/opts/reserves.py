@@ -301,33 +301,11 @@ def _get_combined_prm_requirements(n, config=None, snakemake=None, regional_prm_
     if regional_prm_data is not None:
         return regional_prm_data
 
-    # Load user-defined PRM requirements
-    regional_prm = pd.read_csv(
-        config["electricity"]["SAFE_regional_reservemargins"],
-        index_col=[0],
-    )
-
-    # Process ReEDS PRM data if available
-    reeds_prm = pd.read_csv(snakemake.input.safer_reeds, index_col=[0])
-
-    # Map NERC regions to ReEDS zones
-    nerc_memberships = (
-        n.buses.groupby("nerc_reg")["reeds_zone"]
-        .apply(
-            lambda x: ", ".join(x),
-        )
-        .to_dict()
-    )
-
-    reeds_prm["region"] = reeds_prm.index.map(nerc_memberships)
-    reeds_prm = reeds_prm.dropna(subset="region")
-    reeds_prm = reeds_prm.drop(
-        columns=["none", "ramp2025_20by50", "ramp2025_25by50", "ramp2025_30by50"],
-    )
-    reeds_prm = reeds_prm.rename(columns={"static": "prm", "t": "planning_horizon"})
+    # Get reserves data from network
+    reserves_data = n.meta["policy_data"]["reserves"]
 
     # Combine both data sources
-    regional_prm = pd.concat([regional_prm, reeds_prm])
+    regional_prm = pd.concat([reserves_data["regional_prm"], reserves_data["reeds_prm"]])
 
     # Filter for relevant planning horizons
     return regional_prm[regional_prm.planning_horizon.isin(n.investment_periods)]
@@ -552,7 +530,7 @@ def add_operational_reserve_margin(n, sns, config):
         epsilon_vres: 0.02 # percentage of VRES at each snapshot
         contingency: 400000 # MW
     """
-    reserve_config = config["electricity"]["operational_reserve"]
+    reserve_config = n.meta["policy_data"]["reserves"]["operational_reserve"]
     eps_load = reserve_config["epsilon_load"]
     eps_vres = reserve_config["epsilon_vres"]
     contingency = reserve_config["contingency"]

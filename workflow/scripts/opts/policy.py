@@ -29,7 +29,7 @@ def add_technology_capacity_target_constraints(n, config):
     electricity:
         technology_capacity_target: config/policy_constraints/technology_capacity_target.csv
     """
-    tct_data = pd.read_csv(config["electricity"]["technology_capacity_targets"])
+    tct_data = n.meta["policy_data"]["technology_capacity_targets"]
     if tct_data.empty:
         return
 
@@ -203,75 +203,10 @@ def add_RPS_constraints(n, config, sector, snakemake=None):
     -------
     None
     """
-
-    def process_reeds_data(filepath, carriers, value_col):
-        """Helper function to process RPS or CES REEDS data."""
-        reeds = pd.read_csv(filepath)
-
-        # Handle both wide and long formats
-        if "rps_all" not in reeds.columns:
-            reeds = reeds.melt(
-                id_vars="st",
-                var_name="planning_horizon",
-                value_name=value_col,
-            )
-
-        # Standardize column names
-        reeds = reeds.rename(
-            columns={"st": "region", "t": "planning_horizon", "rps_all": "pct"},
-        )
-        reeds["carrier"] = [", ".join(carriers)] * len(reeds)
-
-        # Extract and create new rows for `rps_solar` and `rps_wind`
-        additional_rows = []
-        for carrier_col, carrier_name in [
-            ("rps_solar", "solar"),
-            ("rps_wind", "onwind, offwind, offwind_floating"),
-        ]:
-            if carrier_col in reeds.columns:
-                temp = reeds[["region", "planning_horizon", carrier_col]].copy()
-                temp = temp.rename(columns={carrier_col: "pct"})
-                temp["carrier"] = carrier_name
-                additional_rows.append(temp)
-
-        # Combine original data with additional rows
-        if additional_rows:
-            additional_rows = pd.concat(additional_rows, ignore_index=True)
-            reeds = pd.concat([reeds, additional_rows], ignore_index=True)
-
-        # Ensure the final dataframe has consistent columns
-        reeds = reeds[["region", "planning_horizon", "carrier", "pct"]]
-        reeds = reeds[reeds["pct"] > 0.0]  # Remove any rows with zero or negative percentages
-
-        return reeds
-
-    # Read portfolio standards data
-    portfolio_standards = pd.read_csv(config["electricity"]["portfolio_standards"])
-
-    # Define carriers for RPS and CES
-    rps_carriers = [
-        "onwind",
-        "offwind",
-        "offwind_floating",
-        "solar",
-        "hydro",
-        "geothermal",
-        "biomass",
-        "EGS",
-    ]
-    ces_carriers = [*rps_carriers, "nuclear", "SMR"]
-
-    # Process RPS and CES REEDS data
-    rps_reeds = process_reeds_data(
-        snakemake.input.rps_reeds,
-        rps_carriers,
-        value_col="pct",
-    )
-    ces_reeds = process_reeds_data(
-        snakemake.input.ces_reeds,
-        ces_carriers,
-        value_col="pct",
-    )
+    # Get portfolio standards data from network
+    portfolio_standards = n.meta["policy_data"]["portfolio_standards"]
+    rps_reeds = n.meta["policy_data"]["rps_reeds"]
+    ces_reeds = n.meta["policy_data"]["ces_reeds"]
 
     # Concatenate all portfolio standards
     portfolio_standards = pd.concat([portfolio_standards, rps_reeds, ces_reeds])
@@ -353,10 +288,7 @@ def add_RPS_constraints(n, config, sector, snakemake=None):
 
 def add_regional_co2limit(n, config):
     """Adding regional regional CO2 Limits Specified in the config.yaml."""
-    regional_co2_lims = pd.read_csv(
-        config["electricity"]["regional_Co2_limits"],
-        index_col=[0],
-    )
+    regional_co2_lims = n.meta["policy_data"]["regional_co2_limits"]
     logger.info("Adding regional Co2 Limits.")
     regional_co2_lims = regional_co2_lims[regional_co2_lims.planning_horizon.isin(n.investment_periods)]
     weightings = n.snapshot_weightings.loc[n.snapshots]

@@ -749,6 +749,26 @@ rule add_extra_components:
         "../scripts/add_extra_components.py"
 
 
+rule add_policy_data:
+    input:
+        network=RESOURCES + "{interconnect}/elec_s{simpl}_c{clusters}_ec.nc",
+        flowgates="repo_data/ReEDS_Constraints/transmission/transmission_capacity_init_AC_ba_NARIS2024.csv",
+        safer_reeds="config/policy_constraints/reeds/prm_annual.csv",
+        rps_reeds="config/policy_constraints/reeds/rps_fraction.csv",
+        ces_reeds="config/policy_constraints/reeds/ces_fraction.csv",
+    output:
+        network=RESOURCES + "{interconnect}/elec_s{simpl}_c{clusters}_ecp.nc",
+    log:
+        "logs/add_policy_data/{interconnect}/elec_s{simpl}_c{clusters}_ec.log",
+    threads: 1
+    resources:
+        mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 2,
+    group:
+        "prepare"
+    script:
+        "../scripts/add_policy_data.py"
+
+
 rule prepare_network:
     params:
         time_resolution=config_provider("clustering", "temporal", "resolution_elec"),
@@ -768,7 +788,7 @@ rule prepare_network:
             config["custom_files"]["files_path"]
             + config["custom_files"]["network_name"]
             if config["custom_files"].get("activate", False)
-            else RESOURCES + "{interconnect}/elec_s{simpl}_c{clusters}_ec.nc"
+            else RESOURCES + "{interconnect}/elec_s{simpl}_c{clusters}_ecp.nc"
         ),
         tech_costs=(
             config["custom_files"]["files_path"] + "costs_2030.csv"
