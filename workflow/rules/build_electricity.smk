@@ -47,6 +47,7 @@ rule build_base_network:
         reeds_shapes=RESOURCES + "{interconnect}/Geospatial/reeds_shapes.geojson",
         county_shapes=RESOURCES + "{interconnect}/Geospatial/county_shapes.geojson",
         reeds_memberships="repo_data/ReEDS_Constraints/membership.csv",
+        census=DATA + "pudl/censusdp1tract.sqlite",
     output:
         bus2sub=RESOURCES + "{interconnect}/bus2sub.csv",
         sub=RESOURCES + "{interconnect}/sub.csv",

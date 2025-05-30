@@ -2,6 +2,7 @@
 
 # BY PyPSA-USA Authors
 import logging
+import sqlite3
 
 import geopandas as gpd
 import numpy as np
@@ -463,7 +464,89 @@ def modify_breakthrough_substations(buslocs: pd.DataFrame):
     return buslocs
 
 
+def inspect_table_structure(conn: sqlite3.Connection, table_name: str) -> None:
+    """Print the column names and first few rows of a table for debugging."""
+    cursor = conn.cursor()
+
+    # Get column names
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    columns = cursor.fetchall()
+    print(f"\nColumns in {table_name}:")
+    for col in columns:
+        print(f"  {col[1]} ({col[2]})")
+
+    # Get first row
+    cursor.execute(f"SELECT * FROM {table_name} LIMIT 1")
+    row = cursor.fetchone()
+    if row:
+        print(f"\nFirst row in {table_name}:")
+        for col, val in zip(columns, row):
+            if col[1] == "geometry":
+                print(f"  {col[1]}: <binary geometry data>")
+            else:
+                print(f"  {col[1]}: {val}")
+
+
+def read_census_data() -> gpd.GeoDataFrame:
+    """
+    Reads in census data for population weighting using SQLite.
+    Returns states, counties, and census tracts GeoDataFrames.
+    """
+    import sqlite3
+
+    # Connect to SQLite database
+    conn = sqlite3.connect(snakemake.input.census)
+
+    # Read census tracts
+    tracts_sql = """
+    SELECT
+    geoid10 as tract_id_fips,
+    namelsad10 as tract_name
+    FROM tract_2010census_dp1;
+    """
+
+    tracts = (
+        gpd.GeoDataFrame.from_postgis(tracts_sql, conn, crs="EPSG:4326")
+        .convert_dtypes()
+        .sort_values("tract_id_fips")
+        .set_index("tract_id_fips")
+    )
+
+    conn.close()
+    return tracts
+
+
+def map_buses_to_geographic_units(n: pypsa.Network) -> pd.DataFrame:
+    """
+    Maps buses to their corresponding census tracts and counties.
+    Returns a DataFrame with bus_id, tract_id_fips, and county_id_fips.
+    """
+    # Create GeoDataFrame from buses
+    bus_gdf = gpd.GeoDataFrame(
+        n.buses,
+        geometry=gpd.points_from_xy(n.buses.x, n.buses.y),
+        crs="EPSG:4326",
+    )
+
+    # Read census data
+    tracts = read_census_data()
+
+    # Perform spatial joins
+    bus_tracts = gpd.sjoin(bus_gdf, tracts, how="left", predicate="within")
+
+    # Create mapping DataFrame
+    mapping = pd.DataFrame(index=n.buses.index)
+    mapping["tract_id_fips"] = bus_tracts["tract_id_fips"]
+    mapping["tract_name"] = bus_tracts["tract_name"]
+    mapping["county_name"] = bus_tracts["county_name"]
+    mapping["state_abbr"] = bus_tracts["state_abbr"]
+
+    return mapping
+
+
 def main(snakemake):
+    states, counties, tracts = read_census_data()
+
     # create network
     n = pypsa.Network()
     n.name = "PyPSA-USA"
