@@ -77,6 +77,7 @@ rule add_extra_components_hires:
     params:
         retirement=config["electricity"].get("retirement", "technical"),
         demand_response=config["electricity"].get("demand_response", {}),
+        trim_network=config_provider("model_topology", "trim", default=False),
     output:
         RESOURCES + "{interconnect}/elec_s{simpl}_ch{clusters_hires}_ec.nc",
     log:
