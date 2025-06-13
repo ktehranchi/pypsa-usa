@@ -564,9 +564,7 @@ def attach_egs(
     drilling_cost = snakemake.config["renewable"]["EGS"]["drilling_cost"]
 
     with (
-        xr.open_dataset(
-            getattr(input_profiles, "specs_egs"),
-        ) as ds_specs,
+        xr.open_dataset(getattr(input_profiles, "specs_egs")) as ds_specs,
         xr.open_dataset(
             getattr(input_profiles, "profile_egs"),
         ) as ds_profile,
@@ -577,13 +575,13 @@ def attach_egs(
             .rename(columns={"Bus": "bus_id"})
         )
 
+        # cast ds_specs sub_id to str
+        ds_profile["sub_id"] = ds_profile["sub_id"].astype(float).astype(int)
+        ds_specs["sub_id"] = ds_specs["sub_id"].astype(float).astype(int)
+        bus2sub["sub_id"] = bus2sub["sub_id"].astype(float).astype(int)
+
         # IGNORE: Remove dropna(). Rather, apply dropna when creating the original dataset
-        df_specs = pd.merge(
-            ds_specs.to_dataframe().reset_index().dropna(),
-            bus2sub,
-            on="sub_id",
-            how="left",
-        )
+        df_specs = pd.merge(ds_specs.to_dataframe().reset_index().dropna(), bus2sub, on="sub_id", how="left")
         df_specs["bus_id"] = df_specs["bus_id"].astype(str)
 
         # bus_id must be in index for pypsa to read it
@@ -600,7 +598,6 @@ def attach_egs(
         )
 
         # TODO: come up with proper values for these params
-
         df_specs["capital_cost"] = 1000 * (
             df_specs["capital_cost"] * calculate_annuity(capital_recovery_period, discount_rate) + df_specs["fixed_om"]
         )  # convert and annualize USD/kW to USD/MW-year
@@ -609,15 +606,15 @@ def attach_egs(
         df_specs = df_specs.loc[~(df_specs.index == "nan")]
 
         # TODO: review what qualities need to be included. Currently limited for speedup.
-        qualities = [1]  # df_specs.Quality.unique()
+        qualities = df_specs.Quality.unique()
 
         for q in qualities:
-            suffix = " " + car  # + f" Q{q}"
+            suffix = " " + car + f" Q{q}"
             df_q = df_specs[df_specs["Quality"] == q]
 
             bus_list = df_q.index.values
             capital_cost = df_q["capital_cost"]
-            p_nom_max_bus = df_q["p_nom_max"]
+            p_nom_max_bus = df_q["p_nom_max"].round(0)
             efficiency = df_q["efficiency"]  # for now.
 
             # IGNORE: Remove dropna(). Rather, apply dropna when creating the original dataset
@@ -633,6 +630,17 @@ def attach_egs(
                 index=["year", "Date"],
                 values="capacity_factor",
             )
+
+            # The index of bus_profiles must also match that of the network.
+            # If the investment periods are later than the years in the bus_profiles,
+            # the bus_profiles must be shifted to match.
+            bp_years = bus_profiles.index.get_level_values(0).unique()
+            if len(bp_years) < len(n.investment_periods):
+                periods_to_keep = bp_years[: len(n.investment_periods)]
+                old_index = bus_profiles.index
+                bus_profiles = bus_profiles.loc[periods_to_keep]
+                bus_profiles.index = old_index[old_index.get_level_values(0).isin(n.investment_periods)]
+                # set the first level of the index to the periods in the n.investment_periods
 
             logger.info(
                 f"Adding EGS (Resource Quality-{q}) capacity-factor profiles to the network.",
