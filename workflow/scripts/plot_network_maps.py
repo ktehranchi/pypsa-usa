@@ -133,8 +133,10 @@ def remove_sector_buses(df: pd.DataFrame) -> pd.DataFrame:
     num_levels = df.index.nlevels
 
     if num_levels > 1:
-        condition = (df.index.get_level_values("bus").str.endswith(" gas")) | (
-            df.index.get_level_values("bus").str.endswith(" gas storage")
+        condition = (
+            (df.index.get_level_values("bus").str.endswith(" gas"))
+            | (df.index.get_level_values("bus").str.endswith(" gas storage"))
+            | (df.index.get_level_values("bus").str.contains(" CC_"))
         )
     else:
         condition = (
@@ -142,6 +144,9 @@ def remove_sector_buses(df: pd.DataFrame) -> pd.DataFrame:
             | (df.index.str.endswith(" gas storage"))
             | (df.index.str.endswith(" gas import"))
             | (df.index.str.endswith(" gas export"))
+            | (df.index.str.endswith(" co2 capture"))
+            | (df.index.str.contains("CC_"))
+            | (df.index.str.contains("atmosphere"))
         )
     return df.loc[~condition].copy()
 
@@ -161,11 +166,15 @@ def plot_emissions_map(
         .sum()  # collaps rows
         .mul(1e-6)  # T -> MT
     )
+
     emissions = remove_sector_buses(emissions.T).T
     emissions.index.name = "bus"
 
-    # plot data
+    # remove any buses that dont have a name for the index
+    # NEED TO FIGURE OUT WHY THERE IS A BUS WITH AN EMPTY NAME
+    emissions = emissions.loc[~(emissions.index == "")]
 
+    # plot data
     fig, ax = plt.subplots(
         figsize=(10, 10),
         subplot_kw={"projection": ccrs.EqualEarth(n.buses.x.mean())},

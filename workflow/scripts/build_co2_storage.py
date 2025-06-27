@@ -1,4 +1,5 @@
-# import necessary Python modules
+"""Script is used to build the CO2 storage potentials and costs for the PyPSA-USA network."""
+
 import logging
 
 import geopandas
@@ -50,7 +51,7 @@ def build_co2_storage(regions_onshore_geojson, co2_storage_geojson, output_csv, 
         # add aggregated CO2 storage potential and average cost for the node into data frame
         if logger is not None:
             if co2_storage_potential == 0:
-                logger.info("Node '%s' has no CO2 storage potential" % node_name)
+                logger.info(f"Node '{node_name}' has no CO2 storage potential")
             else:
                 logger.info(
                     f"Node '{node_name}' has an aggregated CO2 storage potential of {co2_storage_potential:0.1f} MtCO2 with an average cost of {co2_storage_cost_average:0.2f} USD/tCO2",
@@ -59,12 +60,18 @@ def build_co2_storage(regions_onshore_geojson, co2_storage_geojson, output_csv, 
 
     # write data frame into a CSV file
     if logger is not None:
-        logger.info("Save CO2 storage potentials and costs into CSV file '%s'" % output_csv)
+        logger.info(f"Save CO2 storage potentials and costs into CSV file '{output_csv}'")
     data_frame.set_index("node", inplace=True)
     data_frame.to_csv(output_csv)
 
 
 if __name__ == "__main__":
+    logger = logging.getLogger(__name__)
+    if "snakemake" not in globals():
+        from _helpers import mock_snakemake
+
+        snakemake = mock_snakemake("build_co2_storage", interconnect="western")
+
     # build and save CO2 storage potentials and costs
     if "snakemake" in globals():
         build_co2_storage(

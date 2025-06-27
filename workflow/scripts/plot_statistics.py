@@ -116,6 +116,7 @@ def stacked_bar_horizons(
             for i, technology in enumerate(df.index.unique()):
                 values = df.loc[technology, horizon]
                 values = values / (1e3) if "GW" in variable_units else values
+
                 ax.barh(
                     y_positions[j],
                     values,

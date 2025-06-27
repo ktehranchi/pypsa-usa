@@ -10,6 +10,7 @@ from _helpers import calculate_annuity, configure_logging
 from add_electricity import add_missing_carriers
 from opts._helpers import get_region_buses
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense
+from shapely.geometry import Point
 
 idx = pd.IndexSlice
 
@@ -917,7 +918,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
 
     # add carrier to represent CC only (i.e. without S)
     carriers = n.carriers.query("Carrier.str.endswith('CCS')")
-    if carriers.empty == False:
+    if carriers.empty is False:
         n.madd(
             "Carrier",
             carriers.index.str.replace("CCS", "CC", regex=True),
@@ -946,8 +947,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
                     efficiency = 1 / link_efficiency * coal_co2_intensity
                 else:
                     logger.warning(
-                        "Assuming a CO2 intensity equal to 1 given that link '%s' is not powered by gas or coal"
-                        % index,
+                        f"Assuming a CO2 intensity equal to 1 given that link '{index}' is not powered by gas or coal",
                     )
                     efficiency = 1 / link_efficiency * 1
                 cc_level = (
@@ -1015,11 +1015,11 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
                     states = gpd.sjoin_nearest(buses_projected, states_projected, how="left")["STUSPS"]
                     buses_atmosphere_unique = states.unique() + " atmosphere"
                     buses_atmosphere = [
-                        "%s atmosphere" % states.loc[" ".join(index.split(" ")[:elements])] for index in indexes
+                        "{} atmosphere".format(states.loc[" ".join(index.split(" ")[:elements])]) for index in indexes
                     ]
                 else:  # node
                     buses_atmosphere_unique = [
-                        "%s atmosphere" % " ".join(index.split(" ")[:elements]) for index in indexes
+                        "{} atmosphere".format(" ".join(index.split(" ")[:elements])) for index in indexes
                     ]
                     buses_atmosphere = buses_atmosphere_unique
 
@@ -1051,8 +1051,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
                     efficiency = 1 / generator_efficiency * coal_co2_intensity
                 else:
                     logger.warning(
-                        "Assuming a CO2 intensity equal to 1 given that generator '%s' is not powered by gas or coal"
-                        % index,
+                        f"Assuming a CO2 intensity equal to 1 given that generator '{index}' is not powered by gas or coal",
                     )
                     efficiency = 1 / generator_efficiency * 1
                 cc_level = (
@@ -1075,6 +1074,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
                 capital_cost=0,
                 marginal_cost=0,
                 carrier=n.generators.loc[generators].carrier,
+                p_nom_extendable=True,
             )
 
             # (re-)attach generators to new buses (that represent node level CC generator)
