@@ -35,6 +35,7 @@ from _helpers import (
     update_config_from_wildcards,
 )
 from opts.bidirectional_link import add_bidirectional_link_constraints
+from opts.custom import remove_kvl
 from opts.land import add_land_use_constraints
 from opts.policy import (
     add_regional_co2limit,
@@ -164,6 +165,9 @@ def extra_functionality(n, snapshots):
 
     # Always apply bidirectional link constraints
     add_bidirectional_link_constraints(n)
+
+    if config.get("solving", {}).get("options", {}).get("remove_kvl", False):
+        remove_kvl(n)
 
     # Apply operational reserve if configured
     reserve = config["electricity"].get("operational_reserve", {})

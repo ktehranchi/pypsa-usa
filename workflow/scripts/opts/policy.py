@@ -186,6 +186,17 @@ def add_technology_capacity_target_constraints(n, config):
                 f"Adding TCT Constraint: Name: {target.name}, Planning Horizon: {target.planning_horizon}, Region: {target.region}, Carrier: {target.carrier}, Max Value: {target['max']}, Max Value Adj: {rhs}",
             )
 
+        if not np.isnan(target["equals"]):
+            rhs = target["equals"] - round(lhs_existing, 2)
+            n.model.add_constraints(
+                lhs == rhs,
+                name=f"GlobalConstraint-{target.name}_{target.planning_horizon}_equals",
+            )
+
+            logger.info(
+                f"Adding TCT Constraint: Name: {target.name}, Planning Horizon: {target.planning_horizon}, Region: {target.region}, Carrier: {target.carrier}, Equals: {rhs}",
+            )
+
 
 def add_RPS_constraints(n, config, sector, snakemake=None):
     """
