@@ -357,6 +357,8 @@ class GasStorage(GasData):
             # e_initial=df.MAX_CAPACITY_MWH - df.MIN_CAPACITY_MWH,
             e_initial=df.e_initial,
             marginal_cost=0,  # to update
+            lifetime=np.inf,
+            build_year=n.investment_periods[0],
         )
 
         # must do two links, rather than a bidirectional one, to constrain charge limits
@@ -374,6 +376,8 @@ class GasStorage(GasData):
             p_max_pu=1,
             p_nom_extendable=False,
             marginal_cost=0,
+            lifetime=np.inf,
+            build_year=n.investment_periods[0],
         )
 
         n.madd(
@@ -388,6 +392,8 @@ class GasStorage(GasData):
             p_max_pu=1,
             p_nom_extendable=False,
             marginal_cost=0,
+            lifetime=np.inf,
+            build_year=n.investment_periods[0],
         )
 
 
@@ -492,6 +498,8 @@ class GasProcessing(GasData):
             p_nom=(df.p_nom * p_nom_mult).round(2),
             p_nom_min=0,
             p_nom_max=df.p_nom * p_nom_max_mult,
+            lifetime=np.inf,  # UPDATE ONCE GAS EXPANSION ALLOWED
+            build_year=n.investment_periods[0],
         )
 
         n.madd(
@@ -511,6 +519,8 @@ class GasProcessing(GasData):
             e_nom_max=np.inf,
             e_min_pu=-1,
             e_max_pu=0,
+            lifetime=np.inf,
+            build_year=n.investment_periods[0],
         )
 
 
@@ -752,6 +762,8 @@ class InterconnectGasPipelineCapacity(_GasPipelineCapacity):
             p_min_pu=0,
             p_max_pu=1,
             p_nom_extendable=False,
+            lifetime=np.inf,
+            build_year=n.investment_periods[0],
         )
 
 
@@ -817,6 +829,23 @@ class TradeGasPipelineCapacity(_GasPipelineCapacity):
         costs = costs / 1000 * MWH_2_MMCF
 
         return costs.resample("1h").asfreq().interpolate(method=interpoloation_method)
+
+    def _get_domestic_costs(self, interpolation_method: str = "zero") -> pd.DataFrame:
+        """
+        Gets timeseries of domestic costs in $/MWh.
+
+        interpolation_method can be one of:
+        - linear, zero
+        """
+        # fuel costs/profits at a national level
+        costs = eia.FuelCosts("gas", self.year, self.api, industry="citygate").get_data()
+        costs = costs[costs.state == "U.S."].copy()
+
+        # fuel costs come in MCF, so first convert to MMCF
+        costs = costs[["value"]].astype("float")
+        costs = costs / 1000 * MWH_2_MMCF
+
+        return costs.resample("1h").asfreq().interpolate(method=interpolation_method)
 
     def _expand_costs(self, n: pypsa.Network, costs: pd.DataFrame) -> pd.DataFrame:
         """Expands import/export costs over snapshots and investment periods."""
@@ -902,7 +931,7 @@ class TradeGasPipelineCapacity(_GasPipelineCapacity):
 
         return pd.concat([df, zero_df])
 
-    def _get_marginal_costs(
+    def _get_marginal_costs_international(
         self,
         n: pypsa.Network,
         connections: pd.DataFrame,
@@ -919,6 +948,30 @@ class TradeGasPipelineCapacity(_GasPipelineCapacity):
         else:
             # multiple by -1 cause exporting makes money
             costs = self._get_international_costs("exports").mul(-1)
+            df = df[df.STATE_FROM.isin(states_in_model)]
+
+        for link in df.index:
+            costs[link] = costs["value"]
+
+        return costs.drop(columns=["value"])
+
+    def _get_marginal_costs_domestic(
+        self,
+        n: pypsa.Network,
+        connections: pd.DataFrame,
+        imports: bool,
+    ) -> pd.DataFrame:
+        """Gets time varrying import/export costs."""
+        df = connections.copy()
+
+        states_in_model = self.get_states_in_model(n)
+
+        if imports:
+            costs = self._get_domestic_costs()
+            df = df[df.STATE_TO.isin(states_in_model)]
+        else:
+            # multiple by -1 cause exporting makes money
+            costs = self._get_domestic_costs().mul(-1)
             df = df[df.STATE_FROM.isin(states_in_model)]
 
         for link in df.index:
@@ -1022,17 +1075,21 @@ class TradeGasPipelineCapacity(_GasPipelineCapacity):
             template = template[
                 ~(template.STATE_TO.isin(n.buses.reeds_state) & template.STATE_FROM.isin(n.buses.reeds_state))
             ]
+            template = template.dropna(subset=["INTERCONNECT_TO", "INTERCONNECT_FROM"])  # states like hawaii and alaska
 
         store_imports = template[template.store == "import"].copy()
         store_exports = template[template.store == "export"].copy()
 
-        if not self.domestic:
-            import_costs = self._get_marginal_costs(n, template, True)
-            export_costs = self._get_marginal_costs(n, template, False)
-            marginal_cost = pd.concat([import_costs, export_costs], axis=1)
-            marginal_cost = self._expand_costs(n, marginal_cost)
+        # remove any conections within geographic scope
+        if self.domestic:
+            import_costs = self._get_marginal_costs_domestic(n, template, True)
+            export_costs = self._get_marginal_costs_domestic(n, template, False)
         else:
-            marginal_cost = 0
+            import_costs = self._get_marginal_costs_international(n, template, True)
+            export_costs = self._get_marginal_costs_international(n, template, False)
+
+        marginal_cost = pd.concat([import_costs, export_costs], axis=1)
+        marginal_cost = self._expand_costs(n, marginal_cost)
 
         if "gas trade" not in n.carriers.index:
             n.add("Carrier", "gas trade", color="#d35050", nice_name="Gas Trade")
@@ -1061,6 +1118,8 @@ class TradeGasPipelineCapacity(_GasPipelineCapacity):
             p_nom_extendable=False,
             efficiency=1,  # must be 1 for proper cost accounting
             marginal_cost=marginal_cost,
+            lifetime=np.inf,
+            build_year=n.investment_periods[0],
         )
 
         n.madd(
@@ -1080,6 +1139,8 @@ class TradeGasPipelineCapacity(_GasPipelineCapacity):
             e_nom_max=np.inf,
             e_min_pu=0,
             e_max_pu=1,
+            lifetime=np.inf,
+            build_year=n.investment_periods[0],
         )
 
         n.madd(
@@ -1099,6 +1160,8 @@ class TradeGasPipelineCapacity(_GasPipelineCapacity):
             e_nom_max=np.inf,
             e_min_pu=-1,  # minus 1 for energy addition!
             e_max_pu=0,
+            lifetime=np.inf,
+            build_year=n.investment_periods[0],
         )
 
 
@@ -1181,9 +1244,17 @@ class PipelineLinepack(GasData):
         max_pressure = 8000  # kPa
         min_pressure = 4000  # kPa
 
+        # Energy content calculated using:
+        # E_total = n * Cv * T = (PV/RT) * Cv * T = (PV/R) * Cv
+        # E = PV * (R/Cv)
+        # R = 8.314 J/(mol.K)
+        # Cv_Methane = 35.7 J/(mol.K)
+
+        r_cv = 8.314 / 35.7
+
         energy_in_state = volumne_in_state.copy()
-        energy_in_state["MAX_ENERGY_kJ"] = energy_in_state.VOLUME_M3 * max_pressure
-        energy_in_state["MIN_ENERGY_kJ"] = energy_in_state.VOLUME_M3 * min_pressure
+        energy_in_state["MAX_ENERGY_kJ"] = energy_in_state.VOLUME_M3 * max_pressure * r_cv
+        energy_in_state["MIN_ENERGY_kJ"] = energy_in_state.VOLUME_M3 * min_pressure * r_cv
         energy_in_state["NOMINAL_ENERGY_kJ"] = (energy_in_state.MAX_ENERGY_kJ + energy_in_state.MIN_ENERGY_kJ) / 2
 
         final = energy_in_state.copy()
@@ -1227,6 +1298,7 @@ class PipelineLinepack(GasData):
             capital_cost=1,
             standing_loss=standing_loss,
             lifetime=np.inf,
+            build_year=n.investment_periods[0],
         )
 
 

@@ -6,11 +6,26 @@
 PyPSA-USA allows for flexible configuration of the spatial scope of your energy model, enabling you to define the geographical area and level of detail for your simulations. The **spatial scope** is determined by the `interconnect`, `model_topology` configuration settings.
 
 - `{interconnect}` is used to select which of the three asynchronous interconnection to model. You can select `western`, `eastern`, `texas`, or `usa` to model the entire US.
+
+```{eval-rst}
+.. image:: _static/zones/interconnects.png
+   :width: 600px
+   :align: center
+   :alt: Map of US Interconnections
+```
+
 - After selecting your `{interconnect}`, you can specify `model_topology: include:` to filter individual states or balancing authorities to be selected in your model.
 
 ### Example: Modeling California
 
 To create a model that includes only California, you can specify the relevant ReEDS zone IDs (p8-11) as shown below. This will limit the spatial scope to the specified regions within California. Your interconnect could be set to `western` or `usa`.
+
+```{eval-rst}
+.. image:: _static/zones/reeds_zones.png
+   :width: 600px
+   :align: center
+   :alt: Map of ReEDS Zones
+```
 
 ```yaml
 model_topology:
@@ -18,7 +33,31 @@ model_topology:
       reeds_zone: ['p8', 'p9', 'p10', 'p11']
 ```
 
-Alternatively, you can use the reeds_state: 'CA' option to achieve the same result by specifying the entire state.
+Alternatively, you can use the code reeds_state: 'CA' option to achieve the same result by specifying the entire state.
+
+In addition to filtering by `reeds_zone` and `reeds_state`, you can filter by `reeds_ba`, `trans_reg`, and `nerc_reg` shown graphically below.
+
+
+```{eval-rst}
+.. image:: _static/zones/reeds_trans_reg.png
+   :width: 600px
+   :align: center
+   :alt: Map of ReEDS Transmission Regions
+```
+
+```{eval-rst}
+.. image:: _static/zones/reeds_nerc_reg.png
+   :width: 600px
+   :align: center
+   :alt: Map of NERC Regions
+```
+
+```{eval-rst}
+.. image:: _static/zones/reeds_ba.png
+   :width: 600px
+   :align: center
+   :alt: Map of Balancing Authorities
+```
 
 ## Configuring Resource Resolution
 PyPSA-USA allows you to independently configure the resolution of resource zones from the transmission network. You can control this using the simpl and clusters parameters in the configuration file.
@@ -31,7 +70,7 @@ scenario:
    simpl: [100]
 ```
 
-This setup results in a model with 10 transmission nodes and 100 distinct resource zones, allowing for more granular modeling of renewable resource distribution while keeping the transmission network simplified.
+This setup, using an `m` after the `clusters` wildcard, results in a model with 10 transmission nodes and 100 distinct renewable resource zones, allowing for more granular modeling of renewable resource distribution while keeping the transmission network simplified. If you use a `c` after the `clusters` wildcard, all conventional resources from the `simpl` step will not be clustered. If you input an `a` after the `clusters` wildcard, all resources will not be clustered beyond the `simpl` level.
 
 ## Configuring Transmission Resolution
 

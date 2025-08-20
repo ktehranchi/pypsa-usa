@@ -23,11 +23,22 @@ logger = logging.getLogger(__name__)
 Hardcoded build years based on building year constructed starting from 2000
 https://www.eia.gov/consumption/commercial/data/2018/bc/pdf/b6.pdf
 """
+# CECS_BUILD_YEARS = {
+#     # year_built: percent of stock
+#     2018: 9.1, # originally 2018
+#     2009: 15.6, # originally 2009
+#     2010: 50.0,  # originally 2006. Assumed from replacement from 2000 data
+# }
+"""
+The esimated numbers above result in lots of 0 capacity in 2030.
+Instead, assuming 5 year roll backs of capacity
+"""
 CECS_BUILD_YEARS = {
     # year_built: percent of stock
-    2018: 9.1,
-    2009: 15.6,
-    2000: 50.0,  # assumed from replacement from 2000 data
+    2024: 25,
+    2019: 25,
+    2014: 25,
+    2009: 25,
 }
 
 """
@@ -365,7 +376,9 @@ def _already_retired(build_year: int, lifetime: int, year: int) -> bool:
     instead of '<' to follow pypsa convention. See folling link
     https://pypsa.readthedocs.io/en/latest/examples/multi-investment-optimisation.html#Multi-Investment-Optimization
     """
-    if (build_year + lifetime) <= year:
+    if build_year > year:  # running historical studies
+        return True
+    elif (build_year + lifetime) <= year:
         return True
     else:
         return False
@@ -670,7 +683,7 @@ def _get_brownfield_template_df(
     return df[["bus1", "name", "suffix", "state", "p_max"]]
 
 
-def _get_endogenous_transport_brownfield_template_df(
+def _get_transport_brownfield_template_df(
     n: pypsa.Network,
     fuel: str,
     veh_mode: str | None = None,
@@ -716,7 +729,6 @@ def add_road_transport_brownfield(
     growth_multiplier: float,
     ratios: pd.DataFrame,
     costs: pd.DataFrame,
-    exogenous_transport: bool,
 ) -> None:
     """Adds existing stock to transportation sector."""
 
@@ -764,9 +776,9 @@ def add_road_transport_brownfield(
         periods = int(lifetime // step)
 
         start_year = n.investment_periods[0]
-        start_year = start_year if start_year >= 2023 else 2023
+        start_year = start_year if start_year <= 2025 else 2025
 
-        for period in range(1, periods + 1):
+        for period in range(0, periods):
             build_year = start_year - period * step
             percent = step / lifetime  # given as a ratio
 
@@ -802,30 +814,31 @@ def add_road_transport_brownfield(
     ) -> None:
         # existing stock efficiencies taken from 2016 EFS Technology data
         # This is consistent with where future efficiencies are taken from
+        # Historical uses lowest EIA 2017 case where available
         # https://data.nrel.gov/submissions/93
         # https://www.nrel.gov/docs/fy18osti/70485.pdf
+
+        ## Efficiencies of existing stock are quite sensitive! ##
 
         match vehicle_mode:
             case RoadTransport.LIGHT.value:
                 costs_name = "Light Duty Cars ICEV"
                 ratio_name = "light_duty"
-                # efficiency = 25.9  # mpg
-                efficiency = 20  # mpg
+                efficiency = 37.78  # mpg (Table 6)
+                # efficiency = 29.2  # mpg (AEO Table 42)
             case RoadTransport.MEDIUM.value:
                 costs_name = "Medium Duty Trucks ICEV"
                 ratio_name = "med_duty"
-                # efficiency = 16.35  # mpg
-                efficiency = 15  # mpg
+                efficiency = 25.16  # mpg (Table 7)
+                # efficiency = 22.8  # mpg (AEO Table 42)
             case RoadTransport.HEAVY.value:
                 costs_name = "Heavy Duty Trucks ICEV"
                 ratio_name = "heavy_duty"
-                # efficiency = 5.44  # mpg
-                efficiency = 5  # mpg
+                efficiency = 5.67  # mpg (Table 10)
             case RoadTransport.BUS.value:
                 costs_name = "Buses ICEV"
                 ratio_name = "bus"
-                # efficiency = 3.67  # mpg
-                efficiency = 3  # mpg
+                efficiency = 3.92  # mpg (Table 12)
             case _:
                 raise NotImplementedError
 
@@ -851,16 +864,16 @@ def add_road_transport_brownfield(
         df["ratio"] = ratios.at["lpg", ratio_name]
         df["p_nom"] = df.p_max.mul(df.ratio).div(100).div(efficiency).round(2)  # div to convert from %
 
-        marginal_cost = _get_marginal_cost(n, df.bus1.to_list())
+        # marginal_cost = _get_marginal_cost(n, df.bus1.to_list())
 
         # roll back vehicle stock in 5 year segments
         step = 5  # years
         periods = int(lifetime // step)
 
         start_year = n.investment_periods[0]
-        # start_year = start_year if start_year >= 2023 else 2023
+        start_year = start_year if start_year <= 2025 else 2025
 
-        for period in range(1, periods + 1):
+        for period in range(0, periods):
             build_year = start_year - period * step
             percent = step / lifetime  # given as a ratio
 
@@ -872,14 +885,6 @@ def add_road_transport_brownfield(
             vehicles["name"] = vehicles.name + f" existing_{build_year} " + vehicles.carrier
             vehicles["p_nom"] = vehicles.p_nom.mul(percent).round(2)
             vehicles = vehicles.set_index("name")
-
-            if isinstance(marginal_cost, pd.DataFrame):
-                mc = marginal_cost.copy()
-                name_mapper = vehicles["bus1"].to_dict()
-                mc = mc.rename(columns={v: k for k, v in name_mapper.items()})
-            else:
-                mc = marginal_cost
-                assert isinstance(mc, float | int)
 
             n.madd(
                 "Link",
@@ -893,8 +898,29 @@ def add_road_transport_brownfield(
                 p_nom=vehicles.p_nom,
                 lifetime=lifetime,
                 build_year=build_year,
-                marginal_cost=mc,
             )
+
+    def add_charging_profiles(n: pypsa.Network) -> None:
+        """Add charging profiles to the network.
+
+        The existing stock has the same charing profile as the future stock.
+        """
+        trn = n.links[n.links.carrier.str.startswith("trn")]
+        trn_existing = trn[trn.index.str.contains("existing_")]
+
+        for vehicle in trn_existing.index:
+            # vehicle will have the form 'p10 existing_2008 trn-elec-veh-lgt'
+            ref_vehicle_split = vehicle.split(" ")
+            ref_vehicle = ref_vehicle_split[0] + " " + ref_vehicle_split[2]
+
+            # can run into infeasabilities for validation runs with the electrification policy
+            # if ref_vehicle in n.links_t["p_min_pu"]:
+            #     p_min_pu = n.links_t["p_min_pu"][ref_vehicle]
+            #     n.links_t["p_min_pu"][vehicle] = p_min_pu
+
+            if ref_vehicle in n.links_t["p_max_pu"]:
+                p_max_pu = n.links_t["p_max_pu"][ref_vehicle]
+                n.links_t["p_max_pu"][vehicle] = p_max_pu
 
     # different naming conventions for exogenous/endogenous transport investment
 
@@ -904,47 +930,26 @@ def add_road_transport_brownfield(
     elec_fuel = SecCarriers.ELECTRICITY.value
     lpg_fuel = SecCarriers.LPG.value
 
-    if exogenous_transport:
-        veh_name = f"{veh_type}-{vehicle_mode}"
+    # elec brownfield
+    df = _get_transport_brownfield_template_df(
+        n,
+        fuel=elec_fuel,
+        veh_mode=vehicle_mode,
+    )
+    df["p_nom"] = df.p_max.mul(growth_multiplier)
+    add_brownfield_ev(n, df, vehicle_mode, ratios, costs)
 
-        # ev brownfield
-        df = _get_brownfield_template_df(
-            n,
-            fuel=elec_fuel,
-            sector=sector,
-            subsector=veh_name,
-        )
-        df["p_nom"] = df.p_max.mul(growth_multiplier)
-        add_brownfield_ev(n, df, vehicle_mode, ratios, costs)
+    # charging profiles of existing stock match the future stock
+    add_charging_profiles(n)
 
-        # lpg brownfield
-        df = _get_brownfield_template_df(
-            n,
-            fuel=lpg_fuel,
-            sector=sector,
-            subsector=veh_name,
-        )
-        df["p_nom"] = df.p_max.mul(growth_multiplier)
-        add_brownfield_lpg(n, df, vehicle_mode, ratios, costs)
-
-    else:
-        # elec brownfield
-        df = _get_endogenous_transport_brownfield_template_df(
-            n,
-            fuel=elec_fuel,
-            veh_mode=vehicle_mode,
-        )
-        df["p_nom"] = df.p_max.mul(growth_multiplier)
-        add_brownfield_ev(n, df, vehicle_mode, ratios, costs)
-
-        # lpg brownfield
-        df = _get_endogenous_transport_brownfield_template_df(
-            n,
-            fuel=lpg_fuel,
-            veh_mode=vehicle_mode,
-        )
-        df["p_nom"] = df.p_max.mul(growth_multiplier)
-        add_brownfield_lpg(n, df, vehicle_mode, ratios, costs)
+    # lpg brownfield
+    df = _get_transport_brownfield_template_df(
+        n,
+        fuel=lpg_fuel,
+        veh_mode=vehicle_mode,
+    )
+    df["p_nom"] = df.p_max.mul(growth_multiplier)
+    add_brownfield_lpg(n, df, vehicle_mode, ratios, costs)
 
 
 def add_service_brownfield(
@@ -992,11 +997,8 @@ def add_service_brownfield(
         df["ratio"] = df.state.map(ratios.gas)
         df["p_nom"] = df.p_max.mul(df.ratio).div(100).div(efficiency).round(2)  # div to convert from %
 
-        marginal_cost_names = [x.replace("heat", "gas-furnace") for x in df.bus1.to_list()]
-        marginal_cost = _get_marginal_cost(n, marginal_cost_names)
-
         start_year = n.investment_periods[0]
-        # start_year if start_year >= 2023 else 2023
+        start_year = start_year if start_year <= 2025 else 2025
 
         for build_year, percent in installed_capacity.items():
             if _already_retired(build_year, lifetime, start_year):
@@ -1007,14 +1009,6 @@ def add_service_brownfield(
             furnaces["name"] = furnaces.name + f" existing_{build_year} " + furnaces.carrier
             furnaces["p_nom"] = furnaces.p_nom.mul(percent).div(100).round(2)
             furnaces = furnaces.set_index("name")
-
-            if isinstance(marginal_cost, pd.DataFrame):
-                mc = marginal_cost.copy()
-                name_mapper = furnaces["bus1"].str.replace("-heat", "-gas-furnace").to_dict()
-                mc = mc.rename(columns={v: k for k, v in name_mapper.items()})
-            else:
-                mc = 0
-                assert isinstance(mc, float | int)
 
             n.madd(
                 "Link",
@@ -1030,7 +1024,7 @@ def add_service_brownfield(
                 p_nom=furnaces.p_nom,
                 lifetime=lifetime,
                 build_year=build_year,
-                marginal_cost=mc,
+                # marginal_cost=mc,
             )
 
     def add_brownfield_oil_furnace(
@@ -1062,16 +1056,13 @@ def add_service_brownfield(
 
         # remove 'heat' or 'cool' ect.. from suffix
         df["carrier"] = df.suffix.map(lambda x: "-".join(x.split("-")[:-1]))
-        df["carrier"] = df.carrier + "-lpg-furnace"
+        df["carrier"] = df.carrier + "-oil-furnace"
 
-        df["ratio"] = df.state.map(ratios.lpg)
+        df["ratio"] = df.state.map(ratios.lpg)  # in this context lpg == oil
         df["p_nom"] = df.p_max.mul(df.ratio).div(100).div(efficiency)  # div to convert from %
 
-        marginal_cost_names = [x.replace("heat", "lpg-furnace") for x in df.bus1.to_list()]
-        marginal_cost = _get_marginal_cost(n, marginal_cost_names)
-
         start_year = n.investment_periods[0]
-        # start_year = start_year if start_year >= 2023 else 2023
+        start_year = start_year if start_year <= 2025 else 2025
 
         for build_year, percent in installed_capacity.items():
             if _already_retired(build_year, lifetime, start_year):
@@ -1082,14 +1073,6 @@ def add_service_brownfield(
             furnaces["name"] = furnaces.name + f" existing_{build_year} " + furnaces.carrier
             furnaces["p_nom"] = furnaces.p_nom.mul(percent).div(100).round(2)
             furnaces = furnaces.set_index("name")
-
-            if isinstance(marginal_cost, pd.DataFrame):
-                mc = marginal_cost.copy()
-                name_mapper = furnaces["bus1"].str.replace("-heat", "-lpg-furnace").to_dict()
-                mc = mc.rename(columns={v: k for k, v in name_mapper.items()})
-            else:
-                mc = marginal_cost
-                assert isinstance(mc, float | int)
 
             n.madd(
                 "Link",
@@ -1105,7 +1088,6 @@ def add_service_brownfield(
                 p_nom=furnaces.p_nom,
                 lifetime=lifetime,
                 build_year=build_year,
-                marginal_cost=mc,
             )
 
     def add_brownfield_elec_furnace(
@@ -1140,7 +1122,7 @@ def add_service_brownfield(
         df["p_nom"] = df.p_max.mul(df.ratio).div(100).div(efficiency)  # div to convert from %
 
         start_year = n.investment_periods[0]
-        # start_year = start_year if start_year >= 2023 else 2023
+        start_year = start_year if start_year <= 2025 else 2025
 
         for build_year, percent in installed_capacity.items():
             if _already_retired(build_year, lifetime, start_year):
@@ -1205,7 +1187,7 @@ def add_service_brownfield(
         df["p_nom"] = df.p_max.mul(df.ratio).div(100).div(efficiency).round(2)  # div to convert from %
 
         start_year = n.investment_periods[0]
-        # start_year = start_year if start_year >= 2023 else 2023
+        start_year = start_year if start_year <= 2025 else 2025
 
         for build_year, percent in installed_capacity.items():
             if _already_retired(build_year, lifetime, start_year):
@@ -1241,27 +1223,26 @@ def add_service_brownfield(
         # existing efficiency values taken from:
         # https://www.eia.gov/analysis/studies/buildings/equipcosts/pdf/full.pdf
 
-        match fuel:
-            case "elec":
-                if sector == "res":
-                    cost_name = "Residential Electric-Resistance Storage Water Heaters"
-                elif sector == "com":
-                    cost_name = "Commercial Electric Resistance Storage Water Heaters"
-                ratio_map = ratios.electricity
-            case "gas":
-                if sector == "res":
-                    cost_name = "Residential Gas-Fired Storage Water Heaters"
-                elif sector == "com":
-                    cost_name = "Commercial Gas-Fired Storage Water Heaters"
-                ratio_map = ratios.gas
-            case "lpg":
-                if sector == "res":
-                    cost_name = "Residential Oil-Fired Storage Water Heaters"
-                elif sector == "com":
-                    cost_name = "Commercial Oil-Fired Storage Water Heaters"
-                ratio_map = ratios.lpg
-            case _:
-                raise NotImplementedError
+        if fuel == "elec":
+            if sector == "res":
+                cost_name = "Residential Electric-Resistance Storage Water Heaters"
+            elif sector == "com":
+                cost_name = "Commercial Electric Resistance Storage Water Heaters"
+            ratio_map = ratios.electricity
+        elif fuel == "gas":
+            if sector == "res":
+                cost_name = "Residential Gas-Fired Storage Water Heaters"
+            elif sector == "com":
+                cost_name = "Commercial Gas-Fired Storage Water Heaters"
+            ratio_map = ratios.gas
+        elif fuel == "oil":
+            if sector == "res":
+                cost_name = "Residential Oil-Fired Storage Water Heaters"
+            elif sector == "com":
+                cost_name = "Commercial Oil-Fired Storage Water Heaters"
+            ratio_map = ratios.lpg
+        else:
+            raise ValueError(f"Unknown fuel of {fuel}")
 
         df = template.copy()
 
@@ -1280,9 +1261,6 @@ def add_service_brownfield(
         df["ratio"] = df.state.map(ratio_map)
         df["p_nom"] = df.p_max.mul(df.ratio).div(100)  # div to convert from %
 
-        marginal_cost_names = [f"{x}-discharger" for x in df.bus0.to_list()]
-        marginal_cost = _get_marginal_cost(n, marginal_cost_names)
-
         start_year = n.investment_periods[0]
 
         for build_year, percent in installed_capacity.items():
@@ -1294,14 +1272,6 @@ def add_service_brownfield(
             heater["name"] = heater.name + f" existing_{build_year} " + heater.carrier + "-heater"
             heater["p_nom"] = heater.p_nom.mul(percent).div(100).div(efficiency).round(2)
             heater = heater.set_index("name")
-
-            if isinstance(marginal_cost, pd.DataFrame):
-                mc = marginal_cost.copy()
-                name_mapper = heater["bus1"].str.replace("-heat", "-water-gas-heater").to_dict()
-                mc = mc.rename(columns={v: k for k, v in name_mapper.items()})
-            else:
-                mc = 0
-                assert isinstance(mc, float | int)
 
             n.madd(
                 "Link",
@@ -1316,7 +1286,6 @@ def add_service_brownfield(
                 p_nom=heater.p_nom,
                 lifetime=lifetime,
                 build_year=build_year,
-                marginal_cost=mc,
             )
 
     def add_brownfield_water_heater(
@@ -1400,17 +1369,16 @@ def add_service_brownfield(
 
     assert sector in ("res", "com")
 
-    match fuel:
-        case "space_heating":
-            load = "space-heat"
-        case "water_heating":
-            load = "water-heat"
-        case "heating":
-            load = "heat"
-        case "cooling":
-            load = "cool"
-        case _:
-            raise NotImplementedError
+    if fuel == "space_heating":
+        load = "space-heat"
+    elif fuel == "water_heating":
+        load = "water-heat"
+    elif fuel == "heating":
+        load = "heat"
+    elif fuel == "cooling":
+        load = "cool"
+    else:
+        raise ValueError(f"Unknown fuel of {fuel}")
 
     df = _get_brownfield_template_df(n, load, sector)
     df["p_nom"] = df.p_max.mul(growth_multiplier)
@@ -1448,7 +1416,7 @@ def add_service_brownfield(
             add_brownfield_water_heater_simple_storage(
                 n,
                 df,
-                "lpg",
+                "oil",
                 sector,
                 ratios,
                 costs,
@@ -1456,7 +1424,7 @@ def add_service_brownfield(
         else:
             add_brownfield_water_heater(n, df, "gas", sector, ratios, costs)
             add_brownfield_water_heater(n, df, "elec", sector, ratios, costs)
-            add_brownfield_water_heater(n, df, "lpg", sector, ratios, costs)
+            add_brownfield_water_heater(n, df, "oil", sector, ratios, costs)
     else:
         raise NotImplementedError
 
@@ -1486,7 +1454,8 @@ def add_industrial_brownfield(
         # will give approximate installed capacity percentage by year
         installed_capacity = MECS_BUILD_YEARS
         lifetime = costs.at["direct firing gas", "lifetime"]
-        efficiency = 0.95
+        # assume lower efficiency of already installed units
+        efficiency = costs.at["direct firing gas", "efficiency"] * 0.90
 
         efficiency2 = costs.at["gas", "co2_emissions"]
 
@@ -1497,9 +1466,6 @@ def add_industrial_brownfield(
 
         df["ratio"] = df.state.map(ratios.gas)
         df["p_nom"] = df.p_max.mul(df.ratio).div(100).div(efficiency)  # div to convert from %
-
-        marginal_cost_names = [x.replace("heat", "gas-furnace") for x in df.bus1.to_list()]
-        marginal_cost = _get_marginal_cost(n, marginal_cost_names)
 
         start_year = n.investment_periods[0]
 
@@ -1512,14 +1478,6 @@ def add_industrial_brownfield(
             furnaces["name"] = furnaces.name + f" existing_{build_year} " + furnaces.carrier
             furnaces["p_nom"] = furnaces.p_nom.mul(percent).div(100).round(2)
             furnaces = furnaces.set_index("name")
-
-            if isinstance(marginal_cost, pd.DataFrame):
-                mc = marginal_cost.copy()
-                name_mapper = furnaces["bus1"].str.replace("-heat", "-gas-furnace").to_dict()
-                mc = mc.rename(columns={v: k for k, v in name_mapper.items()})
-            else:
-                mc = marginal_cost
-                assert isinstance(mc, float | int)
 
             n.madd(
                 "Link",
@@ -1535,7 +1493,7 @@ def add_industrial_brownfield(
                 p_nom=furnaces.p_nom,
                 lifetime=lifetime,
                 build_year=build_year,
-                marginal_cost=mc,
+                # marginal_cost=mc,
             )
 
     def add_brownfield_oil_furnace(
@@ -1559,8 +1517,8 @@ def add_industrial_brownfield(
         # will give approximate installed capacity percentage by year
         installed_capacity = MECS_BUILD_YEARS
         lifetime = costs.at["direct firing coal", "lifetime"]
-        # efficiency = costs.at["direct firing coal", "efficiency"]
-        efficiency = 0.95
+        # assume lower efficiency of already installed units
+        efficiency = costs.at["direct firing coal", "efficiency"] * 0.90
 
         efficiency2 = costs.at["coal", "co2_emissions"]
 
@@ -1571,9 +1529,6 @@ def add_industrial_brownfield(
 
         df["ratio"] = df.state.map(ratios.coal)
         df["p_nom"] = df.p_max.mul(df.ratio).div(100).div(efficiency)  # div to convert from %
-
-        marginal_cost_names = [x.replace("heat", "coal-furnace") for x in df.bus1.to_list()]
-        marginal_cost = _get_marginal_cost(n, marginal_cost_names)
 
         start_year = n.investment_periods[0]
 
@@ -1586,14 +1541,6 @@ def add_industrial_brownfield(
             furnaces["name"] = furnaces.name + f" existing_{build_year} " + furnaces.carrier
             furnaces["p_nom"] = furnaces.p_nom.mul(percent).div(100).round(2)
             furnaces = furnaces.set_index("name")
-
-            if isinstance(marginal_cost, pd.DataFrame):
-                mc = marginal_cost.copy()
-                name_mapper = furnaces["bus1"].str.replace("-heat", "-coal-furnace").to_dict()
-                mc = mc.rename(columns={v: k for k, v in name_mapper.items()})
-            else:
-                mc = marginal_cost
-                assert isinstance(mc, float | int)
 
             n.madd(
                 "Link",
@@ -1609,7 +1556,6 @@ def add_industrial_brownfield(
                 p_nom=furnaces.p_nom,
                 lifetime=lifetime,
                 build_year=build_year,
-                marginal_cost=mc,
             )
 
     match fuel:

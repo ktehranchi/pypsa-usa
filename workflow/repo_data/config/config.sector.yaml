@@ -14,7 +14,8 @@ sector:
     cyclic_storage: true
     standing_loss: 0
   methane:
-    leakage_rate: 0.02 # per unit 
+    upstream_leakage_rate: 0.02 # per unit 
+    downstream_leakage_rate: 0.02 # per unit 
     gwp: 0 
   # docs-heating
   heating:
@@ -61,10 +62,8 @@ sector:
   transport_sector:
     brownfield: True # false to be implemented
     dynamic_costs: True # false to be implemented 
-    investment:
-      exogenous: False 
-      ev_policy: "config/policy_constraints/ev_policy.csv"
-      must_run_evs: True
+    ev_policy: "config/policy_constraints/ev_policy.csv"
+    must_run_evs: True
     modes: # false to be implemented 
       vehicle: true
       rail: true

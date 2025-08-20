@@ -8,7 +8,7 @@ from math import ceil
 from pathlib import Path
 
 # Optional used as 'arg: callable | None = None' gives TypeError with py3.11
-from typing import Any, Optional
+from typing import Any
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -87,9 +87,19 @@ def is_urban_rural_split(n: pypsa.Network) -> bool:
 
 def get_plotting_colors(n: pypsa.Network, nice_name: bool) -> dict[str, str]:
     if nice_name:
-        return n.carriers.set_index("nice_name")["color"].to_dict()
+        colors = n.carriers.set_index("nice_name")["color"]
     else:
-        return n.carriers["color"].to_dict()
+        colors = n.carriers["color"]
+
+    colors = colors.groupby(colors.index).first()  # remove any duplicates
+
+    nans = colors[colors.isna()].index.to_list()
+
+    if nans:
+        # logger.warning(f"No color assigned to {nans}. Assigning #000000 (black).")
+        colors = colors.fillna("#000000")
+
+    return colors.to_dict()
 
 
 def get_sectors(n: pypsa.Network) -> list[str]:
@@ -154,7 +164,7 @@ def plot_sector_production_timeseries(
     nice_name: bool | None = True,
     remove_sns_weights: bool = True,
     resample: str | None = None,
-    resample_fn: Optional[callable] = None,  # noqa: UP007
+    resample_fn: callable | None = None,
     month: int | None = None,
     **kwargs,
 ) -> tuple:
@@ -229,7 +239,7 @@ def plot_transportation_production_timeseries(
     nice_name: bool | None = True,
     remove_sns_weights: bool = True,
     resample: str | None = None,
-    resample_fn: Optional[callable] = None,  # noqa: UP007
+    resample_fn: callable | None = None,
     month: int | None = None,
     **kwargs,
 ) -> tuple:
@@ -265,6 +275,15 @@ def plot_transportation_production_timeseries(
         resample_fn=resample_fn,
         remove_sns_weights=remove_sns_weights,
     )
+
+    # This is cause of non-use issues with exisiting stock
+    small_negative_cols = df_all.columns[((df_all < 0) & (df_all > -0.0001)).any()]
+    large_negative_cols = df_all.columns[(df_all < -0.0001).any()]
+    if len(small_negative_cols) > 0 and len(large_negative_cols) == 0:
+        for col in small_negative_cols:
+            logger.warning(f"Negative values found in column '{col}', setting to zero")
+        df_all = df_all.clip(lower=0)
+
     df_veh = _filter_vehicle_type(df_all, vehicle)
 
     if df_veh.empty:
@@ -372,6 +391,7 @@ def plot_sector_emissions(
     sectors = ("res", "com", "ind", "trn", "pwr", "ch4")
 
     data = []
+    cols = []
 
     for sector in sectors:
         df = get_emission_timeseries_by_sector(n, sector, state=state)
@@ -383,12 +403,13 @@ def plot_sector_emissions(
         data.append(
             df.loc[investment_period,].iloc[-1].values[0],
         )
+        cols.append(sector)
 
     if not data:
         # empty data to be caught by type error below
-        df = pd.DataFrame(data, columns=sectors)
+        df = pd.DataFrame(data, columns=cols)
     else:
-        df = pd.DataFrame([data], columns=sectors)
+        df = pd.DataFrame([data], columns=cols)
 
     fig, axs = plt.subplots(
         ncols=1,
@@ -969,7 +990,7 @@ def plot_sector_dr_timeseries(
     state: str | None = None,
     nice_name: bool | None = True,
     resample: str | None = None,
-    resample_fn: Optional[callable] = None,  # noqa: UP007
+    resample_fn: callable | None = None,
     month: int | None = None,
     **kwargs,
 ) -> tuple:
@@ -1480,12 +1501,12 @@ if __name__ == "__main__":
     if "snakemake" not in globals():
         snakemake = mock_snakemake(
             "plot_sector_production",
-            simpl="132",
-            opts="3h",
-            clusters="33m",
+            simpl="12",
+            opts="4h",
+            clusters="4m",
             ll="v1.0",
             sector="E-G",
-            planning_horizons="2018",
+            planning_horizons="2030",
             interconnect="western",
         )
         rootpath = ".."

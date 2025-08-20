@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pypsa
-from build_heat import _get_dynamic_marginal_costs, get_link_marginal_costs
+from build_heat import get_link_marginal_costs
 from constants_sector import (
     AirTransport,
     BoatTransport,
@@ -21,41 +21,26 @@ logger = logging.getLogger(__name__)
 def build_transportation(
     n: pypsa.Network,
     costs: pd.DataFrame,
-    exogenous: bool = False,
     air: bool = True,
     rail: bool = True,
     boat: bool = True,
-    dynamic_pricing: bool = False,
-    eia: str | None = None,  # for dynamic pricing
-    year: int | None = None,  # for dynamic pricing
     must_run_evs: bool | None = None,  # for endogenous EV investment
     dr_config: dict[str, Any] | None = None,
 ) -> None:
     """Main funtion to interface with."""
     road_suffix = Transport.ROAD.value
 
-    for fuel in ("elec", "lpg"):
-        if fuel == "elec":
-            add_ev_infrastructure(n, road_suffix)  # attaches at node level
-        else:
-            add_lpg_infrastructure(n, road_suffix, costs)  # attaches at state level
+    add_ev_infrastructure(n, road_suffix)  # attaches at node level
+    add_lpg_infrastructure(n, road_suffix, costs)  # attaches at state level
 
-    if dynamic_pricing:
-        assert eia
-        assert year
-        lpg_cost = _get_dynamic_marginal_costs(n, "lpg", eia, year)
-    else:
-        logger.warning("Marginal lpg cost set to zero :(")
-        lpg_cost = 0  # TODO: No static cost found :(
+    # lpg costs tracked at state level
+    lpg_cost = 0
 
     road_vehicles = [x.value for x in RoadTransport]
     for vehicle in road_vehicles:
         add_elec_vehicle(n, road_suffix, vehicle, costs)
         add_lpg_vehicle(n, road_suffix, vehicle, costs, lpg_cost)
-
-    if not exogenous:
-        assert isinstance(must_run_evs, bool)
-        apply_endogenous_road_investments(n, must_run_evs)
+    constrain_charing_rates(n, must_run_evs)
 
     # demand response must happen after exogenous/endogenous split
     if dr_config:
@@ -116,6 +101,7 @@ def add_ev_infrastructure(
         capital_cost=0,
         p_nom_extendable=True,
         lifetime=np.inf,
+        build_year=n.investment_periods[0],
     )
 
 
@@ -138,7 +124,7 @@ def add_lpg_infrastructure(
         carrier=f"trn-lpg-{vehicle}",
     )
 
-    nodes["bus0"] = nodes.STATE + " oil"
+    nodes["bus0"] = nodes.STATE + " lpg"
 
     if isinstance(costs, pd.DataFrame):
         try:
@@ -161,6 +147,7 @@ def add_lpg_infrastructure(
         capital_cost=0,
         p_nom_extendable=True,
         lifetime=np.inf,
+        build_year=n.investment_periods[0],
     )
 
 
@@ -178,6 +165,9 @@ def add_transport_dr(n: pypsa.Network, vehicle: str, dr_config: dict[str, Any]) 
 
     df = n.buses[n.buses.carrier == f"trn-elec-{vehicle}"]
     df["carrier"] = df.carrier + "-dr"
+
+    lifetime = np.inf
+    build_year = n.investment_periods[0]
 
     # two buses for forward and backwards load shifting
 
@@ -216,6 +206,8 @@ def add_transport_dr(n: pypsa.Network, vehicle: str, dr_config: dict[str, Any]) 
         carrier=df.carrier,
         p_nom_extendable=False,
         p_nom=np.inf,
+        lifetime=lifetime,
+        build_year=build_year,
     )
 
     n.madd(
@@ -227,6 +219,8 @@ def add_transport_dr(n: pypsa.Network, vehicle: str, dr_config: dict[str, Any]) 
         carrier=df.carrier,
         p_nom_extendable=False,
         p_nom=np.inf,
+        lifetime=lifetime,
+        build_year=build_year,
     )
 
     n.madd(
@@ -238,6 +232,8 @@ def add_transport_dr(n: pypsa.Network, vehicle: str, dr_config: dict[str, Any]) 
         carrier=df.carrier,
         p_nom_extendable=False,
         p_nom=np.inf,
+        lifetime=lifetime,
+        build_year=build_year,
     )
 
     n.madd(
@@ -249,6 +245,8 @@ def add_transport_dr(n: pypsa.Network, vehicle: str, dr_config: dict[str, Any]) 
         carrier=df.carrier,
         p_nom_extendable=False,
         p_nom=np.inf,
+        lifetime=lifetime,
+        build_year=build_year,
     )
 
     # backward stores have positive marginal cost storage and postive e
@@ -266,6 +264,8 @@ def add_transport_dr(n: pypsa.Network, vehicle: str, dr_config: dict[str, Any]) 
         e_max_pu=1,
         carrier=df.carrier,
         marginal_cost_storage=marginal_cost_storage,
+        lifetime=lifetime,
+        build_year=build_year,
     )
 
     n.madd(
@@ -280,6 +280,8 @@ def add_transport_dr(n: pypsa.Network, vehicle: str, dr_config: dict[str, Any]) 
         e_max_pu=0,
         carrier=df.carrier,
         marginal_cost_storage=marginal_cost_storage * (-1),
+        lifetime=lifetime,
+        build_year=build_year,
     )
 
 
@@ -325,17 +327,18 @@ def add_elec_vehicle(
     capex = costs.at[costs_name, "capital_cost"] * 1000
     efficiency = costs.at[costs_name, "efficiency"] / 1000
     lifetime = costs.at[costs_name, "lifetime"]
+    build_year = n.investment_periods[0]
 
-    carrier_name = f"trn-elec-{vehicle}-{mode}"
+    carrier_name = f"trn-{vehicle}-{mode}"
 
     loads = n.loads[n.loads.carrier == carrier_name]
 
     vehicles = pd.DataFrame(index=loads.bus)
     vehicles.index = vehicles.index.map(
-        lambda x: x.split(f" trn-elec-{vehicle}-{mode}")[0],
+        lambda x: x.split(f" trn-{vehicle}-{mode}")[0],
     )
     vehicles["bus0"] = vehicles.index + f" trn-elec-{vehicle}"
-    vehicles["bus1"] = vehicles.index + f" trn-elec-{vehicle}-{mode}"
+    vehicles["bus1"] = vehicles.index + f" trn-{vehicle}-{mode}"
     vehicles["carrier"] = f"trn-elec-{vehicle}-{mode}"
 
     n.madd(
@@ -349,6 +352,7 @@ def add_elec_vehicle(
         capital_cost=capex,
         p_nom_extendable=True,
         lifetime=lifetime,
+        build_year=build_year,
         marginal_cost=0,
     )
 
@@ -389,18 +393,19 @@ def add_lpg_vehicle(
     capex = costs.at[costs_name, "capital_cost"] * 1000
     efficiency = costs.at[costs_name, "efficiency"] / 1000
     lifetime = costs.at[costs_name, "lifetime"]
+    build_year = n.investment_periods[0]
 
-    carrier_name = f"trn-lpg-{vehicle}-{mode}"
+    carrier_name = f"trn-{vehicle}-{mode}"
 
     loads = n.loads[n.loads.carrier == carrier_name]
 
     vehicles = pd.DataFrame(index=loads.bus)
     vehicles["state"] = vehicles.index.map(n.buses.STATE)
     vehicles.index = vehicles.index.map(
-        lambda x: x.split(f" trn-lpg-{vehicle}-{mode}")[0],
+        lambda x: x.split(f" trn-{vehicle}-{mode}")[0],
     )
     vehicles["bus0"] = vehicles.index + f" trn-lpg-{vehicle}"
-    vehicles["bus1"] = vehicles.index + f" trn-lpg-{vehicle}-{mode}"
+    vehicles["bus1"] = vehicles.index + f" trn-{vehicle}-{mode}"
     vehicles["carrier"] = f"trn-lpg-{vehicle}-{mode}"
 
     if isinstance(marginal_cost, pd.DataFrame):
@@ -424,6 +429,7 @@ def add_lpg_vehicle(
         capital_cost=capex,
         p_nom_extendable=True,
         lifetime=lifetime,
+        build_year=build_year,
         marginal_cost=mc,
     )
 
@@ -448,13 +454,14 @@ def add_air(
     #  (seat miles / gallon) * ( 1 gal / 33700 wh) * (1k seat mile / 1000 seat miles) * (1000 * 1000 Wh / MWh)
     efficiency = 76.5 / wh_per_gallon / 1000 * 1000 * 1000
     lifetime = 25
+    build_year = n.investment_periods[0]
 
-    loads = n.loads[(n.loads.carrier.str.contains("trn-")) & (n.loads.carrier.str.contains(f"{vehicle}-{mode}"))]
+    loads = n.loads[(n.loads.carrier.str.startswith("trn-")) & (n.loads.carrier.str.endswith(f"{vehicle}-{mode}"))]
 
     vehicles = pd.DataFrame(index=loads.bus)
     vehicles.index = vehicles.index.map(lambda x: x.split(" trn-")[0])
     vehicles["bus0"] = vehicles.index + f" trn-lpg-{vehicle}"
-    vehicles["bus1"] = vehicles.index + f" trn-lpg-{vehicle}-{mode}"
+    vehicles["bus1"] = vehicles.index + f" trn-{vehicle}-{mode}"
     vehicles["carrier"] = f"trn-lpg-{vehicle}-{mode}"
 
     n.madd(
@@ -468,6 +475,7 @@ def add_air(
         capital_cost=capex,
         p_nom_extendable=True,
         lifetime=lifetime,
+        build_year=build_year,
     )
 
 
@@ -489,13 +497,14 @@ def add_boat(
     efficiency = 5 / 0.000293 / 1000
     lifetime = 25
     capex = 1
+    build_year = n.investment_periods[0]
 
-    loads = n.loads[(n.loads.carrier.str.contains("trn-")) & (n.loads.carrier.str.contains(f"{vehicle}-{mode}"))]
+    loads = n.loads[(n.loads.carrier.str.startswith("trn-")) & (n.loads.carrier.str.endswith(f"{vehicle}-{mode}"))]
 
     vehicles = pd.DataFrame(index=loads.bus)
     vehicles.index = vehicles.index.map(lambda x: x.split(" trn-")[0])
     vehicles["bus0"] = vehicles.index + f" trn-lpg-{vehicle}"
-    vehicles["bus1"] = vehicles.index + f" trn-lpg-{vehicle}-{mode}"
+    vehicles["bus1"] = vehicles.index + f" trn-{vehicle}-{mode}"
     vehicles["carrier"] = f"trn-lpg-{vehicle}-{mode}"
 
     n.madd(
@@ -509,6 +518,7 @@ def add_boat(
         capital_cost=capex,
         p_nom_extendable=True,
         lifetime=lifetime,
+        build_year=build_year,
     )
 
 
@@ -532,6 +542,7 @@ def add_rail(
             efficiency = 3.4 / 0.000293 / 1000
             lifetime = 25
             capex = 1
+            build_year = n.investment_periods[0]
         case RailTransport.PASSENGER.value:
             # efficiency = costs.at[costs_name, "efficiency"] / 1000
             # base efficiency is 1506 BTU / Passenger Mile
@@ -539,18 +550,20 @@ def add_rail(
             efficiency = 1506 / 3.412e6 * 1000  # MWh / k passenger miles
             lifetime = 25
             capex = 1
+            build_year = n.investment_periods[0]
         case _:
             logger.warning(f"No cost params set for {mode}")
             efficiency = 1
             lifetime = 1
-            capex = 0
+            capex = 1
+            build_year = n.investment_periods[0]
 
-    loads = n.loads[(n.loads.carrier.str.contains("trn-")) & (n.loads.carrier.str.contains(f"{vehicle}-{mode}"))]
+    loads = n.loads[(n.loads.carrier.str.startswith("trn-")) & (n.loads.carrier.str.endswith(f"{vehicle}-{mode}"))]
 
     vehicles = pd.DataFrame(index=loads.bus)
     vehicles.index = vehicles.index.map(lambda x: x.split(" trn-")[0])
     vehicles["bus0"] = vehicles.index + f" trn-lpg-{vehicle}"
-    vehicles["bus1"] = vehicles.index + f" trn-lpg-{vehicle}-{mode}"
+    vehicles["bus1"] = vehicles.index + f" trn-{vehicle}-{mode}"
     vehicles["carrier"] = f"trn-lpg-{vehicle}-{mode}"
 
     n.madd(
@@ -564,104 +577,11 @@ def add_rail(
         capital_cost=capex,
         p_nom_extendable=True,
         lifetime=lifetime,
+        build_year=build_year,
     )
 
 
-def _create_endogenous_buses(n: pypsa.Network) -> None:
-    """Creats new bus for grouped endogenous vehicle load."""
-    buses = n.buses[
-        n.buses.carrier.str.startswith("trn")
-        & n.buses.carrier.str.contains("veh")
-        & ~n.buses.carrier.str.endswith("veh")
-    ].copy()
-    buses["veh"] = buses.carrier.map(lambda x: x.split("-")[-1])
-    buses["name"] = buses.country + " trn-veh-" + buses.veh
-    buses["carrier"] = "trn-veh-" + buses.veh
-    buses = buses.drop_duplicates(subset="name")
-    buses = buses.set_index("name")
-
-    n.madd(
-        "Bus",
-        buses.index,
-        x=buses.x,
-        y=buses.y,
-        carrier=buses.carrier,
-        STATE=buses.STATE,
-        STATE_NAME=buses.STATE_NAME,
-        unit=buses.unit,
-        interconnect=buses.interconnect,
-        state=buses.state,
-        country=buses.country,
-        reeds_ba=buses.reeds_ba,
-        reeds_state=buses.reeds_state,
-        nerc_reg=buses.nerc_reg,
-        trans_reg=buses.trans_reg,
-    )
-
-
-def _create_endogenous_loads(n: pypsa.Network) -> None:
-    """Creates aggregated vehicle load.
-
-    - Removes LPG load
-    - Transfers EV load to central bus
-    """
-    loads = n.loads[n.loads.carrier.str.startswith("trn") & n.loads.carrier.str.contains("veh")]
-    to_remove = [x for x in loads.index if "-lpg-" in x]
-    to_shift = [x for x in loads.index if "-elec-" in x]
-    assert (len(to_remove) + len(to_shift)) == len(loads)
-
-    new_name_mapper = {x: x.replace("-elec", "") for x in to_shift}
-    new_names = [x for _, x in new_name_mapper.items()]
-
-    # remove LPG loads
-    n.mremove(
-        "Load",
-        to_remove,
-    )
-
-    # rename elec loads to general loads
-    n.loads_t["p_set"] = n.loads_t["p_set"].rename(columns=new_name_mapper)
-    n.loads = n.loads.rename(index=new_name_mapper)
-
-    # transfer elec load buses to general bus
-    n.loads.loc[new_names, "bus"] = n.loads.loc[new_names, "bus"].map(new_name_mapper)
-    n.loads.loc[new_names, "carrier"] = n.loads.loc[new_names, "carrier"].map(
-        lambda x: x.replace("trn-elec-", "trn-"),
-    )
-    n.loads.loc[new_names, "carrier"] = n.loads.loc[new_names, "carrier"].map(
-        lambda x: x.replace("trn-lpg-", "trn-"),
-    )
-
-
-def _create_endogenous_links(n: pypsa.Network) -> None:
-    """Creates links for LPG and EV to load bus.
-
-    Just involves transfering bus1 from exogenous load bus to endogenous load bus
-    """
-    slicer = (
-        n.links.carrier.str.startswith("trn")
-        & n.links.carrier.str.contains("veh")
-        & ~n.links.carrier.str.endswith("veh")
-    )
-    n.links.loc[slicer, "bus1"] = n.links.loc[slicer, "bus1"].map(
-        lambda x: x.replace("trn-elec-", "trn-"),
-    )
-    n.links.loc[slicer, "bus1"] = n.links.loc[slicer, "bus1"].map(
-        lambda x: x.replace("trn-lpg-", "trn-"),
-    )
-
-
-def _remove_exogenous_buses(n: pypsa.Network) -> None:
-    """Removes buses that are used for exogenous vehicle loads."""
-    # this is super awkward filtering :(
-    buses = n.buses[
-        (n.buses.index.str.contains("trn-elec-veh") | n.buses.index.str.contains("trn-lpg-veh"))
-        & ~(n.buses.index.str.endswith("-veh") | n.buses.index.str.endswith("-veh-store"))
-    ].index.to_list()
-    n.mremove("Bus", buses)
-
-
-def _constrain_charing_rates(n: pypsa.Network, must_run_evs: bool) -> None:
+def constrain_charing_rates(n: pypsa.Network, must_run_evs: bool) -> None:
     """Applies limits to p_min_pu/p_max_pu on links.
 
     must_run_evs:
@@ -698,78 +618,11 @@ def _constrain_charing_rates(n: pypsa.Network, must_run_evs: bool) -> None:
     # add small buffer for computation issues while solving
     if not p_min_pu.empty:
         p_min_pu = (p_min_pu - p_min_pu.min()) / (p_min_pu.max() - p_min_pu.min())
+        p_min_pu = p_min_pu.fillna(0)  # if uniform profile, p_min_pu will be nan
         p_min_pu = p_min_pu.sub(0.01).clip(lower=0).round(2)
         n.links_t["p_min_pu"] = pd.concat([n.links_t["p_min_pu"], p_min_pu], axis=1)
 
     p_max_pu = (p_max_pu - p_max_pu.min()) / (p_max_pu.max() - p_max_pu.min())
+    p_max_pu = p_max_pu.fillna(1)  # if uniform profile, p_max_pu will be nan
     p_max_pu = p_max_pu = p_max_pu.add(0.01).clip(upper=1).round(2)
     n.links_t["p_max_pu"] = pd.concat([n.links_t["p_max_pu"], p_max_pu], axis=1)
-
-
-def apply_endogenous_road_investments(
-    n: pypsa.Network,
-    must_run_evs: bool = False,
-) -> None:
-    """Merges EV and LPG load into a single load.
-
-    This function will do the following:
-    - Create a new bus that the combined load will apply to
-    - Shift the EV load to the new bus. This load will retain the EV profile and full
-      magnitude, as this represents all vehicle load in the system. The load is renamed.
-    - Remove the LPG load
-    - Create two links. 1) from EV to new bus for aggregate load. 2) from LPG to new
-      bus for aggregate load
-    - Costrain the new EV link to match the vehicle load profile
-      (ie. p_nom_min(ev) = p_nom_max(ev) = p_nom_t(load))
-    """
-    _create_endogenous_buses(n)
-    _create_endogenous_loads(n)
-    _create_endogenous_links(n)
-    _remove_exogenous_buses(n)
-    _constrain_charing_rates(n, must_run_evs)
-
-
-def apply_exogenous_ev_policy(n: pypsa.Network, policy: pd.DataFrame) -> None:
-    """
-    If transport investment is exogenous, applies policy to control loads.
-
-    At this point, all road-vehicle loads are represented as if the entire load is
-    met through that fuel type (ie. if there is elec and lpg load, there will
-    be 2x the amount of load in the system). This function will adjust the
-    amount of load attributed to each fuel.
-
-    The EFS ev policies come from:
-    - Figure 6.3 at https://www.nrel.gov/docs/fy18osti/71500.pdf
-    - Sheet 6.3 at https://data.nrel.gov/submissions/90
-    """
-    vehicle_mapper = {
-        "light_duty": RoadTransport.LIGHT.value,
-        "med_duty": RoadTransport.MEDIUM.value,
-        "heavy_duty": RoadTransport.HEAVY.value,
-        "bus": RoadTransport.BUS.value,
-    }
-
-    abrev = Transport.ROAD.value
-
-    adjusted_loads = []
-
-    for vehicle in policy.columns:  # name of vehicle type
-        for period in n.investment_periods:
-            ev_share = policy.at[period, vehicle]
-            for fuel in ("elec", "lpg"):
-                # adjust load value
-                load_names = [x for x in n.loads.index if x.endswith(f"trn-{fuel}-{abrev}-{vehicle_mapper[vehicle]}")]
-                df = n.loads_t.p_set.loc[period,][load_names]
-                multiplier = ev_share if fuel == "elec" else (100 - ev_share)
-                df *= multiplier / 100  # divide by 100 to get rid of percent
-
-                # reapply period index level
-                df["period"] = period
-                df = df.set_index(["period", df.index])  # df.index is snapshots
-
-                adjusted_loads.append(df)
-
-    adjusted = pd.concat(adjusted_loads, axis=1)
-
-    adjusted_loads = adjusted.columns
-    n.loads_t.p_set[adjusted_loads] = adjusted[adjusted_loads]

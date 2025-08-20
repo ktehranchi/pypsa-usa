@@ -1,27 +1,5 @@
 # By PyPSA-USA Authors
-"""
-**Description**.
-
-Creates Voronoi shapes for each bus representing both onshore and offshore regions.
-
-**Relevant Settings**
-
-.. code:: yaml
-
-    interconnect:
-    topological_boundaries:
-
-**Inputs**
-
-- ``resources/country_shapes.geojson``: confer :ref:`shapes`
-- ``resources/offshore_shapes.geojson``: confer :ref:`shapes`
-- ``networks/base.nc``: confer :ref:`base`
-
-**Outputs**
-
-- ``resources/regions_onshore.geojson``
-- ``resources/regions_offshore.geojson``
-"""
+"""Creates Voronoi shapes for each bus representing both onshore and offshore regions."""
 
 import logging
 
@@ -108,15 +86,18 @@ def main(snakemake):
 
     gpd_counties = gpd.read_file(snakemake.input.county_shapes).set_index("GEOID")
     gpd_reeds = gpd.read_file(snakemake.input.reeds_shapes).set_index("name")
+    gpd_states = gpd.read_file(snakemake.input.state_shapes).set_index("name")
 
     match topological_boundaries:
         case "county":
             agg_region_shapes = gpd_counties.geometry
         case "reeds_zone":
             agg_region_shapes = gpd_reeds.geometry
+        case "state":
+            agg_region_shapes = gpd_states.geometry
         case _:
             raise ValueError(
-                "Valid values for `model_topology: zonal_aggregation:` are `reeds_zone` or `county`",
+                "Valid values for `model_topology: topological_boundaries:` are `reeds_zone`, `county`, or `state`",
             )
 
     gpd_offshore_shapes = gpd.read_file(snakemake.input.offshore_shapes)
@@ -133,7 +114,6 @@ def main(snakemake):
         right_on=n.buses.index,
     ).set_index("sub_id")
     bus2sub_onshore = bus2sub[bus2sub.Bus.isin(onshore_buses.index)]
-    # bus2sub_offshore = bus2sub[~bus2sub.Bus.isin(onshore_buses.index)]
 
     logger.info("Building Onshore Regions")
     onshore_regions = []
@@ -181,7 +161,6 @@ def main(snakemake):
         # Trim shape to be within certain distance from onshore_regions
         offshore_shape = offshore_shape.intersection(buffered)
         shape_name = offshore_shapes.index[i]
-        # offshore_buses = bus2sub_offshore[["x", "y"]]
         offshore_buses = bus2sub_onshore[["x", "y"]]
         if offshore_buses.empty:
             continue

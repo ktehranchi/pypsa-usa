@@ -1,6 +1,5 @@
 # By PyPSA-USA Authors
 
-
 import copy
 import hashlib
 import logging
@@ -10,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pypsa
 import requests
 import yaml
 from snakemake.utils import update_config
@@ -103,7 +103,6 @@ def load_network(import_name=None, custom_components=None):
     -------
     pypsa.Network
     """
-    import pypsa
     from pypsa.descriptors import Dict
 
     override_components = None
@@ -378,9 +377,9 @@ def mock_snakemake(rulename, **wildcards):
     from snakemake.script import Snakemake
 
     script_dir = Path(__file__).parent.resolve()
-    assert (
-        Path.cwd().resolve() == script_dir
-    ), f"mock_snakemake has to be run from the repository scripts directory {script_dir}"
+    assert Path.cwd().resolve() == script_dir, (
+        f"mock_snakemake has to be run from the repository scripts directory {script_dir}"
+    )
     os.chdir(script_dir.parent)
     for p in sm.SNAKEFILE_CHOICES:
         if os.path.exists(p):
@@ -461,9 +460,9 @@ def validate_checksum(file_path, zenodo_url=None, checksum=None):
         for chunk in iter(lambda: f.read(65536), b""):  # 64kb chunks
             hasher.update(chunk)
     calculated_checksum = hasher.hexdigest()
-    assert (
-        calculated_checksum == checksum
-    ), "Checksum is invalid. This may be due to an incomplete download. Delete the file and re-execute the rule."
+    assert calculated_checksum == checksum, (
+        "Checksum is invalid. This may be due to an incomplete download. Delete the file and re-execute the rule."
+    )
 
 
 def get_checksum_from_zenodo(file_url):
@@ -497,16 +496,6 @@ def set_scenario_config(snakemake):
             with open(root_dir / scenario["file"]) as f:
                 scenario_config = yaml.safe_load(f)
         update_config(snakemake.config, scenario_config[snakemake.wildcards.run])
-
-
-def update_config_with_sector_opts(config, sector_opts):
-    from packaging.version import parse
-    from snakemake.utils import update_config
-
-    for o in sector_opts.split("-"):
-        if o.startswith("CF+"):
-            l_ = o.split("+")[1:]
-            update_config(config, parse(l_))
 
 
 def get_opt(opts, expr, flags=None):

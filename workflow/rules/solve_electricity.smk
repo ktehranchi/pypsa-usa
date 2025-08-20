@@ -8,6 +8,13 @@ def pop_layout_input(wildcards):
         return []
 
 
+def ev_policy_input(wildcards):
+    if wildcards["sector"] != "E":
+        return "config/policy_constraints/ev_policy.csv"
+    else:
+        return []
+
+
 rule solve_network:
     params:
         solving=config_provider("solving"),
@@ -25,6 +32,7 @@ rule solve_network:
         rps_reeds="config/policy_constraints/reeds/rps_fraction.csv",
         ces_reeds="config/policy_constraints/reeds/ces_fraction.csv",
         pop_layout=pop_layout_input,
+        ev_policy=ev_policy_input,
     output:
         network=RESULTS
         + "{interconnect}/networks/elec_s{simpl}_c{clusters}_ec_l{ll}_{opts}_{sector}.nc",
@@ -44,7 +52,7 @@ rule solve_network:
         )
     threads: solver_threads
     resources:
-        walltime= config_provider("walltime","solve_network"),
+        walltime=config_provider("walltime", "solve_network"),
         mem_mb=lambda wildcards, input, attempt: (input.size // 100000) * attempt * 300,
     conda:
         "../envs/environment.yaml"
