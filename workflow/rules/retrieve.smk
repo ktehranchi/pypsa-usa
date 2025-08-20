@@ -232,7 +232,6 @@ rule retrieve_caiso_data:
     resources:
         walltime="00:10:00",
         mem_mb=2000,
-        walltime=config_provider("walltime", "retrieve_caiso_data", default="00:20:00"),
     script:
         "../scripts/retrieve_caiso_data.py"
 
