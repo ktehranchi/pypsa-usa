@@ -11,7 +11,6 @@ from add_electricity import add_missing_carriers
 from eia import FuelCosts
 from opts._helpers import get_region_buses
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense
-from shapely.geometry import Point
 
 idx = pd.IndexSlice
 
@@ -1137,6 +1136,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
     """Adds node level CO2 (underground) storage."""
     # get node level CO2 (underground) storage potential and cost from CSV file
     co2_storage = pd.read_csv(co2_storage_csv).set_index("node")
+    buses_preco2 = n.buses.copy()
 
     # add carrier to represent CO2
     n.madd(
@@ -1152,6 +1152,15 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
         co2_storage.index,
         suffix=" co2 capture",
         carrier="co2",
+        x=buses_preco2.loc[co2_storage.index]["x"],
+        y=buses_preco2.loc[co2_storage.index]["y"],
+        country=buses_preco2.loc[co2_storage.index]["country"],
+        reeds_ba=buses_preco2.loc[co2_storage.index]["reeds_ba"],
+        reeds_zone=buses_preco2.loc[co2_storage.index]["reeds_zone"],
+        interconnect=buses_preco2.loc[co2_storage.index]["interconnect"],
+        trans_reg=buses_preco2.loc[co2_storage.index]["trans_reg"],
+        trans_grp=buses_preco2.loc[co2_storage.index]["trans_grp"],
+        reeds_state=buses_preco2.loc[co2_storage.index]["reeds_state"],
     )
 
     # add stores to represent node level CO2 (underground) storage
@@ -1236,55 +1245,75 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
             n.generators.index = n.generators.index.str.replace("CCS", "CC", regex=True)
 
             # add buses to represent node level electricity CC generator
-            indexes = n.generators.loc[generators].index
+            gens_df = n.generators.loc[generators]
+            indexes = gens_df.index
+            ccs_gen_buses = buses_preco2.loc[gens_df.bus]
+            ccs_gen_buses = ccs_gen_buses.reset_index(drop=True)
+            ccs_gen_buses.index = indexes
             n.madd(
                 "Bus",
                 indexes,
-                carrier=n.generators.loc[generators].carrier,
+                carrier=gens_df.carrier,
+                x=ccs_gen_buses["x"],
+                y=ccs_gen_buses["y"],
+                country=ccs_gen_buses["country"],
+                reeds_ba=ccs_gen_buses["reeds_ba"],
+                reeds_zone=ccs_gen_buses["reeds_zone"],
+                interconnect=ccs_gen_buses["interconnect"],
+                trans_reg=ccs_gen_buses["trans_reg"],
+                trans_grp=ccs_gen_buses["trans_grp"],
+                reeds_state=ccs_gen_buses["reeds_state"],
             )
 
             # add buses to represent node level emitted CO2 by different processes
             granularity = config["dac"]["granularity"]
-            if granularity == "nation":
-                buses_atmosphere_unique = ["atmosphere"]
-                buses_atmosphere = buses_atmosphere_unique
-            else:
-                if config["model_topology"]["transmission_network"] == "reeds":
-                    elements = 1
-                else:  # TAMU
-                    elements = 2
-                if granularity == "state":
-                    buses = n.buses[["x", "y"]].query("x != 0 and y != 0").copy()
-                    buses["geometry"] = buses.apply(lambda x: Point(x.x, x.y), axis=1)
-                    buses_gdf = gpd.GeoDataFrame(buses, crs="EPSG:4269")
-                    states_gdf = gpd.GeoDataFrame(
-                        gpd.read_file(snakemake.input.county_shapes).dissolve("STUSPS")["geometry"],
-                    )
-                    buses_projected = buses_gdf.to_crs("EPSG:3857")
-                    states_projected = states_gdf.to_crs("EPSG:3857")
-                    states = gpd.sjoin_nearest(buses_projected, states_projected, how="left")["STUSPS"]
-                    buses_atmosphere_unique = states.unique() + " atmosphere"
-                    buses_atmosphere = [
-                        "{} atmosphere".format(states.loc[" ".join(index.split(" ")[:elements])]) for index in indexes
-                    ]
-                else:  # node
-                    buses_atmosphere_unique = [
-                        "{} atmosphere".format(" ".join(index.split(" ")[:elements])) for index in indexes
-                    ]
+            match granularity:
+                case "nation":
+                    buses_atmosphere_unique = ["atmosphere"]
                     buses_atmosphere = buses_atmosphere_unique
+                case "state":
+                    # Aggregate after groupby by taking only the common consistent values in each group
+                    def consistent_value(series):
+                        unique_vals = series.unique()
+                        if len(unique_vals) == 1:
+                            return unique_vals[0]
+                        else:
+                            return np.nan  # or raise an error if strict consistency is required
+
+                    buses_atmosphere = buses_preco2.groupby("reeds_state").agg(lambda x: consistent_value(x))
+                    buses_atmosphere["reeds_state"] = buses_atmosphere.index
+                    xy = buses_preco2.groupby("reeds_state")[["x", "y"]].mean()
+                    # Replace NaN values in buses_atmosphere with values from xy to avoid double columns
+                    for col in ["x", "y"]:
+                        buses_atmosphere[col] = buses_atmosphere[col].fillna(xy[col])
+                case "node":
+                    assert False, "Node level granularity is not supported yet"
+                    # buses_atmosphere_unique = [
+                    #     "{} atmosphere".format(" ".join(index.split(" ")[:elements])) for index in indexes
+                    # ]
+                    # buses_atmosphere = buses_atmosphere_unique
+                case _:
+                    raise ValueError(f"Invalid granularity: {granularity}")
 
             # add buses to represent (air) atmosphere where CO2 emissions are sent to
+            buses_atmosphere.index = buses_atmosphere.index + " atmosphere"
             n.madd(
                 "Bus",
-                buses_atmosphere_unique,
+                buses_atmosphere.index,
                 carrier="co2",
+                x=buses_atmosphere.x,
+                y=buses_atmosphere.y,
+                reeds_state=buses_atmosphere.reeds_state,
+                interconnect=buses_atmosphere.interconnect,
+                trans_reg=buses_atmosphere.trans_reg,
+                trans_grp=buses_atmosphere.trans_grp,
             )
 
             # add stores to represent (air) atmosphere where CO2 emissions are stored
             n.madd(
                 "Store",
-                buses_atmosphere_unique,
-                bus=buses_atmosphere_unique,
+                buses_atmosphere.index,
+                bus=buses_atmosphere.index,
                 e_nom_extendable=True,
                 e_min_pu=-1,
                 carrier="co2",
@@ -1317,7 +1346,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
                 indexes,
                 bus0=indexes,
                 bus1=n.generators.loc[generators]["bus"],
-                bus2=buses_atmosphere,
+                bus2=buses_atmosphere.index,
                 bus3=co2_storage.index + " co2 capture",
                 efficiency=1,
                 efficiency2=efficiency2,

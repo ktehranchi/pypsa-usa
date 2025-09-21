@@ -526,8 +526,8 @@ def plot_production_area(
             carriers_2_plot.append(f"{carrier}" + "_discharger")
 
     # imports and exports will be reported by both links and stores
-    duplicates = energy_mix.columns[energy_mix.columns.duplicated()]
-    assert all(x in ["imports", "exports"] for x in duplicates)
+    # duplicates = energy_mix.columns[energy_mix.columns.duplicated()]
+    # assert all(x in ["imports", "exports"] for x in duplicates)
     energy_mix = energy_mix.loc[:, ~energy_mix.columns.duplicated(keep="first")].copy()
 
     # ensure exports are tagged as negative

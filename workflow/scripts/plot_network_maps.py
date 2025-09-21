@@ -153,7 +153,6 @@ def plot_emissions_map(
     **wildcards,
 ) -> None:
     # get data
-
     emissions = (
         get_node_emissions_timeseries(n)
         .groupby(level=0, axis=1)  # group columns
@@ -163,7 +162,9 @@ def plot_emissions_map(
     )
     emissions = remove_sector_buses(emissions.T).T
     emissions.index.name = "bus"
-
+    # Remove any entry with an empty 'bus' index
+    if "" in emissions.index:
+        emissions = emissions.loc[emissions.index != ""]
     # plot data
 
     fig, ax = plt.subplots(

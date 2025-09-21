@@ -117,14 +117,21 @@ def get_energy_timeseries(n: pypsa.Network) -> pd.DataFrame:
         for port in [col[3:] for col in c.df.columns if col[:3] == "bus"]:
             if port == "0":  # only track flow in one direction
                 continue
-            totals = c.pnl["p" + port]  # .multiply(n.snapshot_weightings.generators,axis=0,)
+            # Check if the port data exists in pnl before accessing it
+            port_key = "p" + port
+            if port_key not in c.pnl:
+                continue
+            totals = c.pnl[port_key]  # .multiply(n.snapshot_weightings.generators,axis=0,)
             if totals.empty:
                 continue
             # remove values where bus is missing (bug in nomopyomo)
             no_bus = c.df.index[c.df["bus" + port] == ""]
-            totals.loc[no_bus] = float(
-                n.component_attrs[c.name].loc["p" + port, "default"],
-            )
+            # Only set values for links that actually exist in the totals DataFrame
+            existing_no_bus = no_bus.intersection(totals.index)
+            if not existing_no_bus.empty:
+                totals.loc[existing_no_bus] = float(
+                    n.component_attrs[c.name].loc[port_key, "default"],
+                )
             c_energies -= totals.T.groupby(c.df.carrier).sum().T
         return c_energies
 

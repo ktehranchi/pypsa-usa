@@ -1,15 +1,18 @@
 """Calculates the CO2 storage potential and cost for each node in the PyPSA-USA network."""
 
+import logging
+
 import geopandas
 import pandas
 from _helpers import configure_logging
 
+logger = logging.getLogger(__name__)
 
-def build_co2_storage(regions_onshore_geojson, co2_storage_geojson, output_csv, logger):
+
+def build_co2_storage(regions_onshore_geojson, co2_storage_geojson, output_csv):
     # get PyPSA-USA network nodes and CO2 storage information at a county level
 
-    if logger is not None:
-        logger.info("Calculate CO2 storage potentials and costs")
+    logger.info("Calculate CO2 storage potentials and costs")
 
     regions_onshore = geopandas.read_file(regions_onshore_geojson)
     co2_storage = geopandas.read_file(co2_storage_geojson)
@@ -59,8 +62,7 @@ def build_co2_storage(regions_onshore_geojson, co2_storage_geojson, output_csv, 
         data_frame.loc[len(data_frame)] = [node_name, co2_storage_potential, co2_storage_cost_average]
 
     # write data frame into a CSV file
-    if logger is not None:
-        logger.info(f"Save CO2 storage potentials and costs into CSV file '{output_csv}'")
+    logger.info(f"Save CO2 storage potentials and costs into CSV file '{output_csv}'")
     data_frame.set_index("node", inplace=True)
     data_frame.to_csv(output_csv)
 
@@ -77,5 +79,4 @@ if __name__ == "__main__":
         snakemake.input["regions_onshore"],
         snakemake.input["co2_storage"],
         snakemake.output["co2_storage"],
-        None,
     )
