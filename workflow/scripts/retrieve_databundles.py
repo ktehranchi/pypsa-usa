@@ -8,6 +8,18 @@ from pathlib import Path
 
 from _helpers import configure_logging, progress_retrieve
 
+# For Windows OS, use zipfile-deflate64 (optional import)
+try:
+    import zipfile_deflate64
+except ImportError:
+    zipfile_deflate64 = None
+
+
+def is_wsl():
+    with open("/proc/version") as f:
+        return "microsoft" in f.read().lower()
+
+
 logger = logging.getLogger(__name__)
 
 # Note: when adding files to pypsa_usa_data.zip, be sure to zip the folder w/o the root folder included:
@@ -29,14 +41,21 @@ def download_repository(url, rootpath, repository):
     progress_retrieve(url, tarball_fn)
 
     logger.info(f"Extracting {repository} databundle.")
-    if (
-        repository == "EFS"
-    ):  # deflate64 compression not supported by zipFile, current subprocess command will only work on linux and mac
-        if platform.system() == "Windows":
-            cmd = ["tar", "-xf", tarball_fn, "-C", to_fn]
-        else:
-            cmd = ["unzip", tarball_fn, "-d", to_fn]
-        subprocess.run(cmd, check=True)
+    if repository == "EFS":
+        if platform.system() == "Windows" or is_wsl():  # Handle both Windows and WSL
+            if zipfile_deflate64 is None:
+                raise ImportError(
+                    "zipfile-deflate64 is required on Windows/WSL. Install it with: pip install zipfile-deflate64",
+                )
+            try:
+                with zipfile_deflate64.ZipFile(tarball_fn, "r") as zip_ref:
+                    zip_ref.extractall(to_fn)
+            except Exception as e:
+                logger.error(f"Failed to extract zip file with zipfile_deflate64: {e}")
+                raise
+        else:  # Pure Linux/macOS environment
+            cmd = ["unzip", tarball_fn, "-d", str(to_fn)]
+            subprocess.run(cmd, check=True)
     else:
         with zipfile.ZipFile(tarball_fn, "r") as zip_ref:
             zip_ref.extractall(to_fn)

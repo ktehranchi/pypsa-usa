@@ -62,7 +62,6 @@ dependencies = [
     "xlrd==2.0.1",
 ]
 
-
 [project.urls]
 Documentation = "https://pypsa-usa.readthedocs.io/en/latest/"
 Issues = "https://github.com/PyPSA/pypsa-usa/issues"
@@ -82,6 +81,9 @@ dev = [
     "sphinx-book-theme",
     "myst-parser",
     "pytest",
+]
+windows = [
+    "zipfile-deflate64==0.2.0",
 ]
 
 [tool.setuptools.package-dir]
