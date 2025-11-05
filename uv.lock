@@ -1604,7 +1604,6 @@ wheels = [
 
 [[package]]
 name = "pypsa-usa"
-version = "0.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "atlite" },
@@ -1661,6 +1660,9 @@ dev = [
     { name = "sphinx-book-theme" },
     { name = "types-pyyaml" },
 ]
+windows = [
+    { name = "zipfile-deflate64" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1713,6 +1715,7 @@ requires-dist = [
     { name = "types-pyyaml", marker = "extra == 'dev'" },
     { name = "xarray", specifier = "==2024.9.0" },
     { name = "xlrd", specifier = "==2.0.1" },
+    { name = "zipfile-deflate64", marker = "extra == 'windows'", specifier = "==0.2.0" },
 ]
 
 [[package]]
@@ -2598,6 +2601,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/d1/ac/3c494dd7ec5122cff
 wheels = [
     { url = "https://files.pythonhosted.org/packages/80/ab/11a76c1e2126084fde2639514f24e6111b789b0bfa4fc6264a8975c7e1f1/zict-3.0.0-py2.py3-none-any.whl", hash = "sha256:5796e36bd0e0cc8cf0fbc1ace6a68912611c1dbd74750a3f3026b9b9d6a327ae", size = 43332 },
 ]
+
+[[package]]
+name = "zipfile-deflate64"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/03/1b/f397f821b48156ee94c5ca7ad82dc5cdb73cbcbc4377b9c1b21556f3ce8c/zipfile-deflate64-0.2.0.tar.gz", hash = "sha256:875a3299de102edf1c17f8cafcc528b1ca80b62dc4814b9cb56867ec59fbfd18", size = 62896 }
 
 [[package]]
 name = "zipp"

@@ -60,9 +60,7 @@ dependencies = [
     "tsam>=2.3.6",
     "xarray==2024.9.0",
     "xlrd==2.0.1",
-    "zipfile-deflate64==0.2.0"
 ]
-
 
 [project.urls]
 Documentation = "https://pypsa-usa.readthedocs.io/en/latest/"
@@ -83,6 +81,9 @@ dev = [
     "sphinx-book-theme",
     "myst-parser",
     "pytest",
+]
+windows = [
+    "zipfile-deflate64==0.2.0",
 ]
 
 [tool.setuptools.package-dir]

@@ -63,6 +63,36 @@ mamba activate pypsa-usa
 
 You also have the option to use `miniconda`. Download [`miniconda`](https://docs.conda.io/en/latest/miniconda.html) following their [instructions](https://docs.conda.io/en/latest/miniconda.html).
 
+### Step 3c: Optional Windows Dependencies
+
+If you are running PyPSA-USA on **Windows or Windows Subsystem for Linux (WSL)**, you may need to install additional dependencies for extracting certain zip files that use the deflate64 compression method.
+
+#### Using `uv`
+
+To install the optional Windows dependencies with `uv`, you can install the package directly:
+
+```console
+uv pip install zipfile-deflate64
+```
+
+or if installing from the repository:
+
+```console
+uv pip install ".[windows]"
+```
+
+#### Using `mamba`/`conda`
+
+To install the optional Windows dependencies with `mamba`/`conda`:
+
+```console
+mamba install zipfile-deflate64 -c conda-forge
+```
+
+```{note}
+This dependency is only required on Windows/WSL systems.
+```
+
 ## Step 4: Install a Solver
 
 PyPSA-USA uses an external solver to solve the optimization problem formulated in the workflow. After you install your solver and confirm it is accessible within your conda environment, update your solving configuration to match your solver of choice.
