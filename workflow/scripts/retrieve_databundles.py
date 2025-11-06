@@ -16,8 +16,11 @@ except ImportError:
 
 
 def is_wsl():
-    with open("/proc/version") as f:
-        return "microsoft" in f.read().lower()
+    try:
+        with open("/proc/version") as f:
+            return "microsoft" in f.read().lower()
+    except FileNotFoundError:
+        return False
 
 
 logger = logging.getLogger(__name__)
