@@ -46,6 +46,7 @@ rule retrieve_zenodo_databundles:
         ),
         expand(DATA + "{file}", file=pypsa_usa_datafiles),
     resources:
+        walltime="00:40:00",
         mem_mb=5000,
     log:
         "logs/retrieve/retrieve_databundles.log",
@@ -68,6 +69,7 @@ rule retrieve_nrel_efs_data:
     output:
         DATA + "nrel_efs/EFSLoadProfile_{efs_case}_{efs_speed}.csv",
     resources:
+        walltime="00:40:00",
         mem_mb=5000,
     log:
         "logs/retrieve/retrieve_efs_{efs_case}_{efs_speed}.log",
