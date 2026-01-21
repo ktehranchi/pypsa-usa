@@ -442,7 +442,7 @@ def define_erm_nodal_balance_constraints(n, erm, region_buses):
 
     n.model.add_constraints(
         lhs,
-        "=",
+        ">=",
         rhs,
         name=f"GlobalConstraint-{erm.name}_ERM",
         mask=mask,
@@ -515,10 +515,12 @@ def add_ERM_constraints(n, config=None, snakemake=None, regional_prm_data=None):
         if not n.lines.empty and "Line-s_RESERVES" not in model.variables:
             model.add_variables(-np.inf, model.variables["Line-s"].upper, name="Line-s_RESERVES")
             define_operational_constraints_for_extendables(n, n.snapshots, "Line", "s")
+            define_operational_constraints_for_non_extendables(n, n.snapshots, "Line", "s")
 
         if not n.links.empty and "Link-p_RESERVES" not in model.variables:
             model.add_variables(-np.inf, model.variables["Link-p"].upper, name="Link-p_RESERVES")
             define_operational_constraints_for_extendables(n, n.snapshots, "Link", "p")
+            define_operational_constraints_for_non_extendables(n, n.snapshots, "Link", "p")
 
         define_erm_nodal_balance_constraints(n, erm, region_buses)
         logger.info(
