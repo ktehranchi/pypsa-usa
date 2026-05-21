@@ -546,12 +546,8 @@ def attach_wind_and_solar(
 
         capital_cost = costs.at[car, "annualized_capex_fom"]
 
-        bus2sub = (
-            pd.read_csv(input_profiles.bus2sub, dtype=str)
-            .drop("interconnect", axis=1)
-            .rename(columns={"Bus": "bus_id"})
-            .drop_duplicates(subset="sub_id")
-        )
+        # Profile bus index already matches the network bus index after
+        # cluster_simpl runs upstream — both are keyed by simpl-cluster bus.
 
         # For GODEEEP future scenarios, load horizon-specific profiles
         if godeeep_future:
@@ -572,40 +568,28 @@ def attach_wind_and_solar(
                     if ds.indexes["bus"].empty:
                         continue
 
-                    # Get bus list
+                    # Get bus list (profile bus = network bus, both at cluster level)
                     if bus_list is None:
-                        bus_list = ds.bus.to_dataframe("sub_id").merge(bus2sub).bus_id.astype(str).values
+                        bus_list = ds.bus.values.astype(str)
 
-                        # Get p_nom_max and weight
                         p_nom_max_bus = (
                             ds["p_nom_max"]
-                            .to_dataframe()
-                            .merge(bus2sub[["bus_id", "sub_id"]], left_on="bus", right_on="sub_id")
-                            .set_index("bus_id")
-                            .p_nom_max
+                            .to_pandas()
+                            .rename(
+                                index=lambda b: str(b),
+                            )
                         )
                         weight_bus = (
                             ds["weight"]
-                            .to_dataframe()
-                            .merge(bus2sub[["bus_id", "sub_id"]], left_on="bus", right_on="sub_id")
-                            .set_index("bus_id")
-                            .weight
+                            .to_pandas()
+                            .rename(
+                                index=lambda b: str(b),
+                            )
                         )
 
-                    # Get profile for this horizon
-                    horizon_profile = (
-                        ds["profile"]
-                        .transpose("time", "bus")
-                        .to_pandas()
-                        .T.merge(
-                            bus2sub[["bus_id", "sub_id"]],
-                            left_on="bus",
-                            right_on="sub_id",
-                        )
-                        .set_index("bus_id")
-                        .drop(columns="sub_id")
-                        .T
-                    )
+                    # Get profile for this horizon — index already at bus level
+                    horizon_profile = ds["profile"].transpose("time", "bus").to_pandas()
+                    horizon_profile.columns = horizon_profile.columns.astype(str)
 
                     # Update timestamps to match the horizon year
                     horizon_profile.index = horizon_profile.index.map(lambda x: x.replace(year=int(horizon)))
@@ -624,34 +608,23 @@ def attach_wind_and_solar(
                 if ds.indexes["bus"].empty:
                     continue
 
-                bus_list = ds.bus.to_dataframe("sub_id").merge(bus2sub).bus_id.astype(str).values
+                bus_list = ds.bus.values.astype(str)
                 p_nom_max_bus = (
                     ds["p_nom_max"]
-                    .to_dataframe()
-                    .merge(bus2sub[["bus_id", "sub_id"]], left_on="bus", right_on="sub_id")
-                    .set_index("bus_id")
-                    .p_nom_max
+                    .to_pandas()
+                    .rename(
+                        index=lambda b: str(b),
+                    )
                 )
                 weight_bus = (
                     ds["weight"]
-                    .to_dataframe()
-                    .merge(bus2sub[["bus_id", "sub_id"]], left_on="bus", right_on="sub_id")
-                    .set_index("bus_id")
-                    .weight
-                )
-                bus_profiles = (
-                    ds["profile"]
-                    .transpose("time", "bus")
                     .to_pandas()
-                    .T.merge(
-                        bus2sub[["bus_id", "sub_id"]],
-                        left_on="bus",
-                        right_on="sub_id",
+                    .rename(
+                        index=lambda b: str(b),
                     )
-                    .set_index("bus_id")
-                    .drop(columns="sub_id")
-                    .T
                 )
+                bus_profiles = ds["profile"].transpose("time", "bus").to_pandas()
+                bus_profiles.columns = bus_profiles.columns.astype(str)
                 # Broadcast single profile across all horizons
                 bus_profiles = broadcast_investment_horizons_index(n, bus_profiles)
 
