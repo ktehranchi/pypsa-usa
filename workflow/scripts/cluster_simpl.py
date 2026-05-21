@@ -22,6 +22,7 @@ will raise if selected.
 import logging
 
 import geopandas as gpd
+import pandas as pd
 import pypsa
 from _helpers import configure_logging, update_p_nom_max
 from cluster_network import cluster_regions, clustering_for_n_clusters
@@ -66,13 +67,21 @@ if __name__ == "__main__":
             aggregation_strategies=params.aggregation_strategies,
             weighting_strategy="population",
         )
+        busmap = clustering.busmap
         n = clustering.network
 
-        cluster_regions((clustering.busmap,), snakemake.input, snakemake.output)
+        cluster_regions((busmap,), snakemake.input, snakemake.output)
     else:
         for which in ("regions_onshore", "regions_offshore"):
             regions = gpd.read_file(getattr(snakemake.input, which))
             regions.to_file(getattr(snakemake.output, which))
+        busmap = pd.Series(n.buses.index, index=n.buses.index, name="cluster_bus")
+
+    busmap.index = busmap.index.astype(str)
+    busmap = busmap.astype(str)
+    busmap.index.name = "sub_id"
+    busmap.name = "cluster_bus"
+    busmap.to_csv(snakemake.output.busmap)
 
     update_p_nom_max(n)
 

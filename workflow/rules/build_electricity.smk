@@ -733,12 +733,12 @@ rule add_electricity:
         bus2sub=RESOURCES + "{interconnect}/bus2sub.csv",
         pudl_fuel_costs=RESOURCES + "{interconnect}/pudl_fuel_costs.csv",
         specs_egs=(
-            DATA + "EGS/{interconnect}/specs_EGS.nc"
+            RESOURCES + "{interconnect}/specs_EGS_s{simpl}.nc"
             if "EGS" in config["electricity"]["extendable_carriers"]["Generator"]
             else []
         ),
         profile_egs=(
-            DATA + "EGS/{interconnect}/profile_EGS.nc"
+            RESOURCES + "{interconnect}/profile_EGS_s{simpl}.nc"
             if "EGS" in config["electricity"]["extendable_carriers"]["Generator"]
             else []
         ),
@@ -782,6 +782,28 @@ rule aggregate_to_substations:
         "../scripts/aggregate_to_substations.py"
 
 
+if "EGS" in config["electricity"]["extendable_carriers"]["Generator"]:
+
+    rule aggregate_egs:
+        input:
+            specs=DATA + "EGS/{interconnect}/specs_EGS.nc",
+            profile=DATA + "EGS/{interconnect}/profile_EGS.nc",
+            busmap=RESOURCES + "{interconnect}/busmap_s{simpl}.csv",
+        output:
+            specs=RESOURCES + "{interconnect}/specs_EGS_s{simpl}.nc",
+            profile=RESOURCES + "{interconnect}/profile_EGS_s{simpl}.nc",
+        log:
+            LOGS + "{interconnect}/aggregate_egs_s{simpl}.log",
+        threads: 1
+        resources:
+            mem_mb=lambda wildcards, input, attempt: (input.size // 200000)
+            * attempt
+            * 2,
+            walltime=config_provider("walltime", "aggregate_egs", default="01:00:00"),
+        script:
+            "../scripts/aggregate_egs.py"
+
+
 rule cluster_simpl:
     params:
         aggregation_strategies=config["clustering"].get("aggregation_strategies", {}),
@@ -799,6 +821,7 @@ rule cluster_simpl:
         + "{interconnect}/Geospatial/regions_onshore_s{simpl}.geojson",
         regions_offshore=RESOURCES
         + "{interconnect}/Geospatial/regions_offshore_s{simpl}.geojson",
+        busmap=RESOURCES + "{interconnect}/busmap_s{simpl}.csv",
     log:
         "logs/cluster_simpl/{interconnect}/elec_s{simpl}.log",
     threads: 1
