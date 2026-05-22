@@ -22,6 +22,27 @@ TEMPLATE_CONFIG_DIR = WORKFLOW_DIR / "repo_data" / "config"
 DATA_DIRS = [WORKFLOW_DIR / "data", WORKFLOW_DIR / "cutouts", WORKFLOW_DIR / "repo_data"]
 
 
+def pytest_collection_modifyitems(config, items):
+    """Reject pytest-xdist for integration tests.
+
+    The ``built`` session fixture runs snakemake once per session against the
+    shared ``workflow/`` directory. With xdist, each worker is its own
+    session — they would race on ``.snakemake/`` locks, repeat the (slow)
+    snakemake build, and contend on the seeding step that copies templates
+    from ``repo_data/config/``. Until the fixture is refactored to use a
+    truly isolated per-worker workflow dir, refuse to run.
+    """
+    if not any(item.get_closest_marker("integration") for item in items):
+        return
+    workers = getattr(config.option, "numprocesses", None)
+    if workers and workers != 0:
+        pytest.exit(
+            "tests/integration are not safe under pytest-xdist (see conftest "
+            "docstring). Run them without `-n` / `--numprocesses`.",
+            returncode=4,
+        )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _seed_runtime_configs():
     """Mirror ``init_pypsa_usa.sh``: copy any missing scenario configs +
@@ -47,7 +68,13 @@ def _seed_runtime_configs():
 
 @dataclass(frozen=True)
 class BuiltArtifacts:
-    """Paths to the per-stage artifacts produced by the Tier B snakemake build."""
+    """Paths to the per-stage artifacts produced by the Tier B snakemake build.
+
+    The ``interconnect``, ``simpl``, and ``clusters`` defaults MUST match
+    ``workflow/repo_data/config/config.test.yaml``'s ``scenario`` section.
+    If you change one, change both — the smoke test will fail loudly but
+    only after the (slow) build, wasting CI time.
+    """
 
     run_name: str
     base: Path  # resources/{run_name}/
@@ -109,17 +136,28 @@ def built(tmp_path_factory) -> BuiltArtifacts:
         f"run={{name: '{run_name}', shared_cutouts: true}}",
         "-j",
         str(os.cpu_count() or 2),
+        # Force greedy scheduler to avoid the ILP scheduler's cbc dependency
+        # (cbc is shipped non-executable in some envs and causes PermissionError).
         "--scheduler",
         "greedy",
         "--quiet",
     ]
-    result = subprocess.run(
-        cmd,
-        cwd=WORKFLOW_DIR,
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=WORKFLOW_DIR,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired as e:
+        raw_stderr = e.stderr
+        if isinstance(raw_stderr, bytes):
+            raw_stderr = raw_stderr.decode("utf-8", errors="replace")
+        stderr_tail = "\n".join(raw_stderr.splitlines()[-100:]) if raw_stderr else "<no stderr captured>"
+        pytest.fail(
+            f"snakemake build timed out after {e.timeout}s\nstderr (last 100 lines):\n{stderr_tail}",
+        )
     if result.returncode != 0:
         pytest.fail(
             f"snakemake build failed (exit {result.returncode}):\n"
