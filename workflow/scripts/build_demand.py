@@ -42,20 +42,10 @@ class Context:
         """The Context maintains a reference to the Strategy objects."""
         return self._read_strategy
 
-    @read_strategy.setter
-    def strategy(self, strategy) -> None:  # arg is ReadStrategy
-        """Usually, the Context allows replacing a Strategy object at runtime."""
-        self._read_strategy = strategy
-
     @property
     def write_strategy(self):  # returns WriteStrategy:
         """The Context maintains a reference to the Strategy objects."""
         return self._write_strategy
-
-    @write_strategy.setter
-    def strategy(self, strategy) -> None:  # arg is WriteStrategy  # noqa: F811
-        """Usually, the Context allows replacing a Strategy object at runtime."""
-        self._write_strategy = strategy
 
     def _read(self) -> pd.DataFrame:
         """Delegate reading to the strategy."""
@@ -108,10 +98,6 @@ class ReadStrategy(ABC):
 
     def __init__(self, filepath: str | list[str] | None = None) -> None:
         self.filepath = filepath
-
-    @property
-    def units():  # noqa: D102
-        return "MW"
 
     @abstractmethod
     def _read_data(self, **kwargs) -> Any:
@@ -404,44 +390,6 @@ class ReadEfs(ReadStrategy):
         )
         df["time"] = time
         return df.drop(columns=["Year", "UtcHourID", "hoy"])
-
-    def get_growth_rate(self):
-        """
-        Public method to get yearly energy totals.
-
-        Yearly values are linearlly interpolated between EFS planning years
-
-        Returns
-        -------
-        |      | State 1 | State 2 | ... | State n |
-        |----- |---------|---------|-----|---------|
-        | 2018 |  ###    |   ###   |     |   ###   |
-        | 2019 |  ###    |   ###   |     |   ###   |
-        | 2020 |  ###    |   ###   |     |   ###   |
-        | 2021 |  ###    |   ###   |     |   ###   |
-        | 2022 |  ###    |   ###   |     |   ###   |
-        | ...  |         |         |     |   ###   |
-        | 2049 |  ###    |   ###   |     |   ###   |
-        | 2050 |  ###    |   ###   |     |   ###   |
-        """
-        # extract efs provided data
-        efs_years = self._read_data()[["Year", "State", "LoadMW"]]
-        efs_years = efs_years.groupby(["Year", "State"]).sum().reset_index()
-        efs_years = efs_years.pivot(index="Year", columns="State", values="LoadMW")
-        efs_years.index = pd.to_datetime(efs_years.index, format="%Y")
-
-        # interpolate in between years
-        new_index = pd.date_range(
-            str(efs_years.index.min()),
-            str(efs_years.index.max()),
-            freq="YS",
-        )
-        all_years = efs_years.reindex(efs_years.index.union(new_index)).interpolate(
-            method="linear",
-        )
-        all_years.index = all_years.index.year
-
-        return all_years
 
 
 class ReadEer(ReadStrategy):
@@ -1060,7 +1008,7 @@ class ReadCliu(ReadStrategy):
         mecs = mecs.dropna(axis=0).drop("Subsector and Industry", axis=1)
         mecs["NAICS"] = mecs.NAICS.astype(int)
         mecs = mecs.set_index(["Region", "NAICS"], drop=True).replace({"*": "0", "Q": "0", "W": "0"}).astype(float)
-        assert not (mecs == np.NaN).any().any()
+        assert not mecs.isna().any().any()
         return mecs
 
     def _apply_mecs(
@@ -1787,7 +1735,12 @@ class WriteStrategy(ABC):
 
 
 class WritePopulation(WriteStrategy):
-    """Based on Population Density from Breakthrough Energy."""
+    """
+    Based on the per-bus demand-allocation weight from build_base_network.
+
+    ``n.buses.load_weight`` is census county population or legacy Breakthrough
+    Energy nominal demand, per ``electricity.demand.bus_allocation``.
+    """
 
     def __init__(self, n: pypsa.Network) -> None:
         super().__init__(n)
@@ -1799,15 +1752,17 @@ class WritePopulation(WriteStrategy):
         **kwargs,
     ) -> pd.Series:
         """Pulls weighting from 'build_base_network'."""
-        logger.info("Setting load allocation factors based on BE population density")
+        logger.info("Setting load allocation factors based on bus load_weight")
         n = self.n
         if zone == "state":
             return n.buses.LAF_state.fillna(0)
         else:
-            n.buses.Pd = n.buses.Pd.fillna(0)
-            bus_load = n.buses.Pd.to_frame(name="Pd").join(df.to_frame(name="zone"))
-            zone_loads = bus_load.groupby("zone")["Pd"].transform("sum")
-            return bus_load.Pd / zone_loads
+            n.buses.load_weight = n.buses.load_weight.fillna(0)
+            bus_load = n.buses.load_weight.to_frame(name="load_weight").join(
+                df.to_frame(name="zone"),
+            )
+            zone_loads = bus_load.groupby("zone")["load_weight"].transform("sum")
+            return bus_load.load_weight / zone_loads
 
 
 class WriteIndustrial(WriteStrategy):
@@ -1828,7 +1783,7 @@ class WriteIndustrial(WriteStrategy):
         elif zone == "reeds":
             return self._dissagregate_on_reeds()
         elif zone == "ba":
-            # return self._dissagregate_on_ba()
+            # BA-level industrial LAFs are not implemented; state-level is used as a proxy
             return self._dissagregate_on_state()
         else:
             raise NotImplementedError
@@ -1858,9 +1813,6 @@ class WriteIndustrial(WriteStrategy):
         laf_all_buses[laf_load_buses.index] = laf_load_buses
 
         return laf_all_buses
-
-    def _dissagregate_on_ba(self) -> pd.Series:
-        raise NotImplementedError
 
     def _dissagregate_on_reeds(self) -> pd.Series:
         raise NotImplementedError
@@ -1913,11 +1865,12 @@ class WriteIndustrial(WriteStrategy):
         """
         Gets a list of load buses, indexed by county.
 
-        Note, load buses follow BE mapping of Pd
+        Note, load buses are those carrying demand-allocation weight
+        (``n.buses.load_weight``).
         """
         n = self.n
-        buses_per_county = n.buses[["Pd", "county"]].fillna(0)
-        buses_per_county = buses_per_county[buses_per_county.Pd != 0]
+        buses_per_county = n.buses[["load_weight", "county"]].fillna(0)
+        buses_per_county = buses_per_county[buses_per_county.load_weight != 0]
 
         mapper = {}
 

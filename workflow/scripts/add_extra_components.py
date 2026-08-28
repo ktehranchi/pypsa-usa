@@ -11,7 +11,6 @@ from add_electricity import add_missing_carriers
 from constants import HOURS_PER_YEAR
 from eia import FuelCosts
 from opts._helpers import get_region_buses
-from pypsa.descriptors import get_switchable_as_dense as get_as_dense
 from shapely.geometry import Point
 
 idx = pd.IndexSlice
@@ -69,7 +68,7 @@ def attach_storageunits(n, costs, elec_opts, investment_year):
         max_hours = int(carrier.split("hr_")[0])
         roundtrip_correction = 0.5 if "battery" in carrier else 1
 
-        n.madd(
+        n.add(
             "StorageUnit",
             buses_i,
             suffix=f" {carrier}_{investment_year}",
@@ -82,6 +81,7 @@ def attach_storageunits(n, costs, elec_opts, investment_year):
             efficiency_dispatch=costs.at[carrier, "efficiency"] ** roundtrip_correction,
             max_hours=max_hours / (costs.at[carrier, "efficiency"] ** roundtrip_correction),
             cyclic_state_of_charge=True,
+            cyclic_state_of_charge_per_period=True,  # pypsa v1 flipped this default to False
             build_year=investment_year,
             lifetime=costs.at[carrier, "cost_recovery_period_years"],
         )
@@ -168,7 +168,7 @@ def attach_phs_storageunits(n: pypsa.Network, elec_opts, costs: pd.DataFrame):
         costs.at["PHS", "co2_emissions"] = 0
         add_missing_carriers(n, ["PHS"])
         add_co2_emissions(n, costs, ["PHS"])
-        n.madd(
+        n.add(
             "StorageUnit",
             region_onshore_psh_grp.index,
             bus=region_onshore_psh_grp.name,
@@ -181,64 +181,29 @@ def attach_phs_storageunits(n: pypsa.Network, elec_opts, costs: pd.DataFrame):
             efficiency_dispatch=efficiency_dispatch,
             max_hours=max_hours / efficiency_dispatch,
             cyclic_state_of_charge=True,
+            cyclic_state_of_charge_per_period=True,  # pypsa v1 flipped this default to False
         )
 
 
-def attach_stores(n, costs, elec_opts, investment_year):
-    carriers = elec_opts["extendable_carriers"]["Store"]
+def copy_timeseries_for_suffix(
+    n: pypsa.Network,
+    source_index: pd.Index,
+    suffix: str | int,
+    attrs: tuple[str, ...] = ("marginal_cost", "p_max_pu"),
+) -> None:
+    """
+    Copy time dependent generator attributes onto suffixed duplicates.
 
-    add_missing_carriers(n, carriers)
-    add_co2_emissions(n, costs, carriers)
-
-    buses_i = n.buses.index
-    bus_sub_dict = {k: n.buses[k].values for k in ["x", "y", "country"]}
-
-    if "H2" in carriers:
-        h2_buses_i = n.madd("Bus", buses_i + " H2", carrier="H2", **bus_sub_dict)
-
-        n.madd(
-            "Store",
-            h2_buses_i,
-            bus=h2_buses_i,
-            carrier="H2",
-            e_nom_extendable=True,
-            e_cyclic=True,
-            capital_cost=costs.at["hydrogen storage underground", "capital_cost"],
-            build_year=investment_year,
-            lifetime=costs.at["hydrogen storage underground", "lifetime"],
-            suffix=f" {investment_year}",
+    Only generators that actually carry a time series for ``attr`` are copied,
+    since not all generators are time dependent.
+    """
+    for attr in attrs:
+        source = n.generators_t[attr]
+        columns = [x for x in source_index if x in source.columns]
+        renamed = source[columns].rename(
+            columns={x: f"{x} {suffix}" for x in columns},
         )
-
-        n.madd(
-            "Link",
-            h2_buses_i + " Electrolysis",
-            bus0=buses_i,
-            bus1=h2_buses_i,
-            carrier="H2 electrolysis",
-            p_nom_extendable=True,
-            efficiency=costs.at["electrolysis", "efficiency"],
-            capital_cost=costs.at["electrolysis", "capital_cost"],
-            marginal_cost=costs.at["electrolysis", "marginal_cost"],
-            build_year=investment_year,
-            lifetime=costs.at["electrolysis", "lifetime"],
-            suffix=str(investment_year),
-        )
-
-        n.madd(
-            "Link",
-            h2_buses_i + " Fuel Cell",
-            bus0=h2_buses_i,
-            bus1=buses_i,
-            carrier="H2 fuel cell",
-            p_nom_extendable=True,
-            efficiency=costs.at["fuel cell", "efficiency"],
-            # NB: fixed cost is per MWel
-            capital_cost=costs.at["fuel cell", "capital_cost"] * costs.at["fuel cell", "efficiency"],
-            marginal_cost=costs.at["fuel cell", "marginal_cost"],
-            build_year=investment_year,
-            lifetime=costs.at["fuel cell", "lifetime"],
-            suffix=str(investment_year),
-        )
+        n.generators_t[attr] = source.join(renamed)
 
 
 def split_retirement_gens(
@@ -314,7 +279,7 @@ def split_retirement_gens(
     # Adding Expanding generators for the first investment period
     # There are generators that exist today and could expand
     # in the first time horizon
-    n.madd(
+    n.add(
         "Generator",
         retirement_gens.index,
         carrier=retirement_gens.carrier,
@@ -336,23 +301,7 @@ def split_retirement_gens(
     )
 
     # time dependent factors added after as not all generators are time dependent
-    marginal_cost_t = n.generators_t["marginal_cost"][
-        [x for x in retirement_gens.index if x in n.generators_t.marginal_cost.columns]
-    ]
-    marginal_cost_t = marginal_cost_t.rename(
-        columns={x: f"{x} existing" for x in marginal_cost_t.columns},
-    )
-    n.generators_t["marginal_cost"] = n.generators_t["marginal_cost"].join(
-        marginal_cost_t,
-    )
-
-    p_max_pu_t = n.generators_t["p_max_pu"][
-        [x for x in retirement_gens.index if x in n.generators_t["p_max_pu"].columns]
-    ]
-    p_max_pu_t = p_max_pu_t.rename(
-        columns={x: f"{x} existing" for x in p_max_pu_t.columns},
-    )
-    n.generators_t["p_max_pu"] = n.generators_t["p_max_pu"].join(p_max_pu_t)
+    copy_timeseries_for_suffix(n, retirement_gens.index, "existing")
 
 
 def attach_multihorizon_existing_generators(
@@ -383,7 +332,7 @@ def attach_multihorizon_existing_generators(
     if gens.empty or len(n.investment_periods) == 1:
         return
 
-    n.madd(
+    n.add(
         "Generator",
         gens.index,
         suffix=f" {investment_year}",
@@ -406,21 +355,7 @@ def attach_multihorizon_existing_generators(
     )
 
     # time dependent factors added after as not all generators are time dependent
-    marginal_cost_t = n.generators_t["marginal_cost"][
-        [x for x in gens.index if x in n.generators_t.marginal_cost.columns]
-    ]
-    marginal_cost_t = marginal_cost_t.rename(
-        columns={x: f"{x} {investment_year}" for x in marginal_cost_t.columns},
-    )
-    n.generators_t["marginal_cost"] = n.generators_t["marginal_cost"].join(
-        marginal_cost_t,
-    )
-
-    p_max_pu_t = n.generators_t["p_max_pu"][[x for x in gens.index if x in n.generators_t["p_max_pu"].columns]]
-    p_max_pu_t = p_max_pu_t.rename(
-        columns={x: f"{x} {investment_year}" for x in p_max_pu_t.columns},
-    )
-    n.generators_t["p_max_pu"] = n.generators_t["p_max_pu"].join(p_max_pu_t)
+    copy_timeseries_for_suffix(n, gens.index, investment_year)
 
 
 def attach_multihorizon_egs(
@@ -448,7 +383,7 @@ def attach_multihorizon_egs(
     base_year = n.investment_periods[0]
     learning_ratio = costs.loc["EGS", "capex_per_kw"] / costs_dict[base_year].loc["EGS", "capex_per_kw"]
     capital_cost = learning_ratio * gens["capital_cost"]
-    n.madd(
+    n.add(
         "Generator",
         gens.index,
         suffix=f" {investment_year}",
@@ -470,23 +405,7 @@ def attach_multihorizon_egs(
     )
 
     # time dependent factors added after
-    marginal_cost_t = n.generators_t["marginal_cost"][
-        [x for x in gens.index if x in n.generators_t.marginal_cost.columns]
-    ]
-    marginal_cost_t = marginal_cost_t.rename(
-        columns={x: f"{x} {investment_year}" for x in marginal_cost_t.columns},
-    )
-    n.generators_t["marginal_cost"] = n.generators_t["marginal_cost"].join(
-        marginal_cost_t,
-    )
-
-    p_max_pu_t = n.generators_t["p_max_pu"][[x for x in gens.index if x in n.generators_t["p_max_pu"].columns]]
-
-    p_max_pu_t = p_max_pu_t.rename(
-        columns={x: f"{x} {investment_year}" for x in p_max_pu_t.columns},
-    )
-
-    n.generators_t["p_max_pu"] = n.generators_t["p_max_pu"].join(p_max_pu_t)
+    copy_timeseries_for_suffix(n, gens.index, investment_year)
 
     # shift over time to capture decline
     investment_year_idx = np.where(n.investment_periods == investment_year)[0][0]
@@ -547,7 +466,7 @@ def attach_multihorizon_new_generators(n, costs, carriers, investment_year):
             p_max_pu_t = n.get_switchable_as_dense("Generator", "p_max_pu")
             p_max_pu_t = (p_max_pu_t[[x for x in existing_gens.index if x in p_max_pu_t.columns]]).mean().mean()
 
-        n.madd(
+        n.add(
             "Generator",
             buses_i,
             suffix=f" {carrier}_{investment_year}",
@@ -647,7 +566,7 @@ def add_demand_response(
 
     shift = dr_config.get("shift", 0)
     if shift == 0:
-        logger.info(f"DR not applied as allowable sift is {shift}")
+        logger.info(f"DR not applied as allowable shift is {shift}")
         return
 
     marginal_cost_storage = dr_config.get("marginal_cost", 0)
@@ -661,9 +580,9 @@ def add_demand_response(
 
     # two storageunits for forward and backwards load shifting
 
-    n.madd(
+    n.add(
         "Bus",
-        names=df.index,
+        name=df.index,
         suffix="-fwd-dr",
         x=df.x,
         y=df.y,
@@ -679,9 +598,9 @@ def add_demand_response(
         substation_lv=df.substation_lv,
     )
 
-    n.madd(
+    n.add(
         "Bus",
-        names=df.index,
+        name=df.index,
         suffix="-bck-dr",
         x=df.x,
         y=df.y,
@@ -699,9 +618,9 @@ def add_demand_response(
 
     # seperate charging/discharging links for easier constraint generation
 
-    n.madd(
+    n.add(
         "Link",
-        names=df.index,
+        name=df.index,
         suffix="-fwd-dr-charger",
         bus0=df.index,
         bus1=df.index + "-fwd-dr",
@@ -710,9 +629,9 @@ def add_demand_response(
         p_nom=np.inf,
     )
 
-    n.madd(
+    n.add(
         "Link",
-        names=df.index,
+        name=df.index,
         suffix="-fwd-dr-discharger",
         bus0=df.index + "-fwd-dr",
         bus1=df.index,
@@ -721,9 +640,9 @@ def add_demand_response(
         p_nom=np.inf,
     )
 
-    n.madd(
+    n.add(
         "Link",
-        names=df.index,
+        name=df.index,
         suffix="-bck-dr-charger",
         bus0=df.index,
         bus1=df.index + "-bck-dr",
@@ -732,9 +651,9 @@ def add_demand_response(
         p_nom=np.inf,
     )
 
-    n.madd(
+    n.add(
         "Link",
-        names=df.index,
+        name=df.index,
         suffix="-bck-dr-discharger",
         bus0=df.index + "-bck-dr",
         bus1=df.index,
@@ -746,12 +665,13 @@ def add_demand_response(
     # backward stores have positive marginal cost storage and postive e
     # forward stores have negative marginal cost storage and negative e
 
-    n.madd(
+    n.add(
         "Store",
-        names=df.index,
+        name=df.index,
         suffix="-bck-dr",
         bus=df.index + "-bck-dr",
         e_cyclic=True,
+        e_cyclic_per_period=True,  # pypsa v1 flipped this default to False
         e_nom_extendable=False,
         e_nom=1e9,
         e_min_pu=0,
@@ -760,12 +680,13 @@ def add_demand_response(
         marginal_cost_storage=marginal_cost_storage,
     )
 
-    n.madd(
+    n.add(
         "Store",
-        names=df.index,
+        name=df.index,
         suffix="-fwd-dr",
         bus=df.index + "-fwd-dr",
         e_cyclic=True,
+        e_cyclic_per_period=True,  # pypsa v1 flipped this default to False
         e_nom_extendable=False,
         e_nom=1e9,
         e_min_pu=-1,
@@ -812,33 +733,33 @@ def trim_network(n, trim_topology):
 
     # Remove components at buses that are being removed
     for c in n.one_port_components:
-        component = n.df(c)
+        component = n.components[c].static
         rm = component[component.bus.isin(buses_to_remove.index)]
         if not rm.empty:
-            n.mremove(c, rm.index)
+            n.remove(c, rm.index)
 
     # Remove lines and links at buses being removed
     for c in ["Line", "Link"]:
-        component = n.df(c)
+        component = n.components[c].static
         rm = component[~component.bus0.isin(internal_buses.index) & ~component.bus1.isin(internal_buses.index)]
         if not rm.empty:
-            n.mremove(c, rm.index)
+            n.remove(c, rm.index)
 
     # Remove the buses
-    n.mremove("Bus", buses_to_remove.index)
+    n.remove("Bus", buses_to_remove.index)
 
     # Get OCGT generators and calculate average marginal cost
     ocgt_gens = n.generators[n.generators.carrier == "OCGT"]
-    avg_marginal_cost = get_as_dense(n, "Generator", "marginal_cost").loc[:, ocgt_gens.index].mean().mean()
+    avg_marginal_cost = n.get_switchable_as_dense("Generator", "marginal_cost").loc[:, ocgt_gens.index].mean().mean()
     n.add("Carrier", "imports", co2_emissions=0.428, nice_name="imports")
 
     # remove existing oneport components at bus
     for c in n.one_port_components:
-        component = n.df(c)
+        component = n.components[c].static
         rm = component[component.bus.isin(external_buses_to_keep.index)]
         if not rm.empty:
             logger.info(f"Removing {c} at external buses {external_buses_to_keep.index} with components {rm.index}")
-            n.mremove(c, rm.index)
+            n.remove(c, rm.index)
 
     # Handle external buses and their generators
     for bus in external_buses_to_keep.index:
@@ -868,18 +789,18 @@ def trim_network(n, trim_topology):
         # Set all links and lines connected to the bus as non-extendable
         for c in ["Line", "Link"]:
             attr_name = "p_nom_extendable" if c == "Link" else "s_nom_extendable"
-            component = n.df(c)
+            component = n.components[c].static
             mask = (component.bus0 == bus) | (component.bus1 == bus)
             if mask.any():
                 component.loc[mask, attr_name] = False
-                n.df(c).update(component)
+                n.components[c].static.update(component)
 
         # Remove the links which have "exp" in the name and are connected to the external buses
         links_to_remove = n.links[
             n.links.index.str.contains("exp")
             & (n.links.bus0.isin(external_buses_to_keep.index) | n.links.bus1.isin(external_buses_to_keep.index))
         ]
-        n.mremove("Link", links_to_remove.index)
+        n.remove("Link", links_to_remove.index)
 
     # Update network topology
     n.determine_network_topology()
@@ -894,7 +815,7 @@ def calc_import_export_costs(n: pypsa.Network, carrier: str) -> float:
         component = "Link"
     if gens.empty:
         raise ValueError(f"No generators or links found for carrier to calculate imports/exports costs: {carrier}")
-    costs = get_as_dense(n, component, "marginal_cost").loc[:, gens.index].mean().mean()
+    costs = n.get_switchable_as_dense(component, "marginal_cost").loc[:, gens.index].mean().mean()
     if costs <= 0.01:
         raise ValueError(
             f"Average marginal cost for {carrier} is less than or equal to 0.01. Check the fuel costs configuration.",
@@ -997,7 +918,7 @@ def add_elec_imports_exports(
         # cant add in the reeds_state, reeds_zone, reeds_ba, interconnect, trans_reg, trans_grp
         # because this information has already been filtered out of the network
 
-        n.madd(
+        n.add(
             "Bus",
             regions_2_add,
             suffix=suffix,
@@ -1008,7 +929,7 @@ def add_elec_imports_exports(
     def _add_import_export_stores(n: pypsa.Network, regions_2_add: list[str], direction: str) -> None:
         """Adds import and export stores to the network."""
         if direction == "imports":
-            n.madd(
+            n.add(
                 "Store",
                 regions_2_add,
                 bus=[f"{x}_imports" for x in regions_2_add],
@@ -1025,7 +946,7 @@ def add_elec_imports_exports(
                 marginal_cost=0,
             )
         elif direction == "exports":
-            n.madd(
+            n.add(
                 "Store",
                 regions_2_add,
                 bus=[f"{x}_exports" for x in regions_2_add],
@@ -1142,7 +1063,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
     co2_storage = pd.read_csv(co2_storage_csv).set_index("node")
 
     # add carrier to represent CO2
-    n.madd(
+    n.add(
         "Carrier",
         ["co2"],
         color=config["plotting"]["tech_colors"]["co2"],
@@ -1150,7 +1071,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
     )
 
     # add buses to represent node level CO2 captured by different processes
-    n.madd(
+    n.add(
         "Bus",
         co2_storage.index,
         suffix=" co2 capture",
@@ -1158,7 +1079,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
     )
 
     # add stores to represent node level CO2 (underground) storage
-    n.madd(
+    n.add(
         "Store",
         co2_storage.index,
         suffix=" co2 storage",
@@ -1172,7 +1093,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
     # add carrier to represent CC only (i.e. without S)
     carriers = n.carriers.query("Carrier.str.endswith('CCS')")
     if not carriers.empty:
-        n.madd(
+        n.add(
             "Carrier",
             carriers.index.str.replace("CCS", "CC", regex=True),
             color=carriers["color"],
@@ -1240,7 +1161,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
 
             # add buses to represent node level electricity CC generator
             indexes = n.generators.loc[generators].index
-            n.madd(
+            n.add(
                 "Bus",
                 indexes,
                 carrier=n.generators.loc[generators].carrier,
@@ -1277,14 +1198,14 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
                     buses_atmosphere = buses_atmosphere_unique
 
             # add buses to represent (air) atmosphere where CO2 emissions are sent to
-            n.madd(
+            n.add(
                 "Bus",
                 buses_atmosphere_unique,
                 carrier="co2",
             )
 
             # add stores to represent (air) atmosphere where CO2 emissions are stored
-            n.madd(
+            n.add(
                 "Store",
                 buses_atmosphere_unique,
                 bus=buses_atmosphere_unique,
@@ -1314,7 +1235,7 @@ def add_co2_storage(n: pypsa.Network, config: dict, co2_storage_csv: str, costs:
                 efficiency3.append(efficiency * (1 - cc_level) / cc_level)
 
             # add links to represent sending electricity (in MW) to the electricity bus (e.g. "p9" if ReEDS or "p100 0" if TAMU) as well as sending emitted CO2 (by the generator) to both the atmosphere bus and the co2 capture bus
-            n.madd(
+            n.add(
                 "Link",
                 indexes,
                 bus0=indexes,
@@ -1351,7 +1272,7 @@ def add_co2_network(n: pypsa.Network, config: dict):
     )
 
     # add links to represent CO2 (transportation) network based on electricity connections layout
-    n.madd(
+    n.add(
         "Link",
         connections.index,
         suffix=" co2 transport",
@@ -1470,14 +1391,14 @@ def add_dac(n: pypsa.Network, config: dict, sector: bool):
                 exists_dac.add(dac)
 
         # add node or state level buses to represent (air) atmosphere where CO2 emissions are sent to (on a per sector basis)
-        n.madd(
+        n.add(
             "Bus",
             buses_atmosphere_unique,
             carrier="co2",
         )
 
         # add links from node or state level buses that represent (air) atmosphere to state level buses tracking CO2 emissions (on a per sector basis)
-        n.madd(
+        n.add(
             "Link",
             buses_atmosphere_unique,
             bus0=buses_atmosphere_unique,
@@ -1500,7 +1421,7 @@ def add_dac(n: pypsa.Network, config: dict, sector: bool):
         links_dac = buses_co2_capture.str.replace(" co2 capture", " dac")
 
     # add carrier to represent DAC
-    n.madd(
+    n.add(
         "Carrier",
         ["dac"],
         color=config["plotting"]["tech_colors"]["dac"],
@@ -1516,7 +1437,7 @@ def add_dac(n: pypsa.Network, config: dict, sector: bool):
     )
 
     # add links to represent node level DAC capabilities
-    n.madd(
+    n.add(
         "Link",
         links_dac,
         bus0=buses_atmosphere,
@@ -1532,18 +1453,8 @@ def add_dac(n: pypsa.Network, config: dict, sector: bool):
     )
 
 
-if __name__ == "__main__":
-    if "snakemake" not in globals():
-        from _helpers import mock_snakemake
-
-        snakemake = mock_snakemake(
-            "add_extra_components",
-            interconnect="western",
-            simpl="20",
-            clusters="4m",
-        )
-    configure_logging(snakemake)
-
+def main(snakemake) -> None:
+    """Add the extra extendable components to the clustered network."""
     n = pypsa.Network(snakemake.input.network)
     schema_entry = log_network_schema(n, stage="entry")
     elec_config = snakemake.config["electricity"]
@@ -1607,19 +1518,18 @@ if __name__ == "__main__":
         )
         attach_multihorizon_egs(n, costs, costs_dict, egs_gens, investment_year)
         attach_multihorizon_new_generators(n, costs, new_carriers, investment_year)
-        # attach_stores(n, costs, elec_config, investment_year)
 
     if not multi_horizon_gens.empty and not len(n.investment_periods) == 1:
         # Remove duplicate generators from first investment period,
         # created by attach_multihorizon_generators
-        n.mremove("Generator", multi_horizon_gens.index)
+        n.remove("Generator", multi_horizon_gens.index)
 
     if not egs_gens.empty and not len(n.investment_periods) == 1:
         # Remove original EGS generators now that vintaged copies exist for
         # each investment period. Without this, the originals (build_year=0)
         # are always active, accumulate capacity through prepare_brownfield,
         # and compound across periods.
-        n.mremove("Generator", egs_gens.index)
+        n.remove("Generator", egs_gens.index)
 
     apply_itc(n, snakemake.config["costs"]["itc_modifier"])
     apply_ptc(n, snakemake.config["costs"]["ptc_modifier"], costs)
@@ -1762,3 +1672,17 @@ if __name__ == "__main__":
     n.meta = dict(snakemake.config, **dict(wildcards=dict(snakemake.wildcards)))
     log_network_schema(n, stage="exit", baseline=schema_entry)
     n.export_to_netcdf(snakemake.output[0])
+
+
+if __name__ == "__main__":
+    if "snakemake" not in globals():
+        from _helpers import mock_snakemake
+
+        snakemake = mock_snakemake(
+            "add_extra_components",
+            interconnect="western",
+            simpl="20",
+            clusters="4m",
+        )
+    configure_logging(snakemake)
+    main(snakemake)

@@ -12,8 +12,17 @@ import pandas as pd
 import pypsa
 import requests
 import yaml
-from constants import HOURS_PER_YEAR
 from snakemake.utils import update_config
+
+# pandas 3 infers `str` dtype for string data; pypsa (until 2.0) converts
+# network frames back to numpy object dtype on import. Pin the legacy
+# behavior explicitly so every script that imports _helpers is consistent
+# and the per-import FutureWarning is silenced.
+# Guarded because this module is also imported at DAG-construction time by
+# rules/common.smk, which runs under the snakemake launcher's interpreter --
+# that may still carry pypsa <1.0, where `pypsa.options` does not exist.
+if hasattr(pypsa, "options"):
+    pypsa.options.api.legacy_string_dtype = True
 
 REGION_COLS = ["geometry", "name", "x", "y", "country"]
 
@@ -127,20 +136,6 @@ def configure_logging(snakemake, skip_handlers=False):
     logging.basicConfig(**kwargs)
 
 
-def setup_custom_logger(name):
-    formatter = logging.Formatter(
-        fmt="%(asctime)s - %(levelname)s - %(module)s - %(message)s",
-    )
-
-    handler = logging.StreamHandler()
-    handler.setFormatter(formatter)
-
-    logger = logging.getLogger(name)
-    # logger.setLevel(logging.DEBUG)
-    logger.addHandler(handler)
-    return logger
-
-
 def log_network_schema(
     n: "pypsa.Network",
     stage: str,
@@ -163,8 +158,8 @@ def log_network_schema(
         Pass this back as baseline= on the matching exit call.
     """
     snapshot: dict[str, dict] = {}
-    for component in n.iterate_components():
-        df = component.df
+    for component in n.components:
+        df = component.static
         if df.empty:
             continue
         snapshot[component.name] = {
@@ -205,67 +200,6 @@ def log_network_schema(
                 removed,
             )
     return snapshot
-
-
-def load_network(import_name=None, custom_components=None):
-    """
-    Helper for importing a pypsa.Network with additional custom components.
-
-    Parameters
-    ----------
-    import_name : str
-        As in pypsa.Network(import_name)
-    custom_components : dict
-        Dictionary listing custom components.
-        For using ``snakemake.config['override_components']``
-        in ``config.yaml`` define:
-
-        .. code:: yaml
-
-            override_components:
-                ShadowPrice:
-                    component: ["shadow_prices","Shadow price for a global constraint.",np.nan]
-
-    Attributes
-    ----------
-                    name: ["string","n/a","n/a","Unique name","Input (required)"]
-                    value: ["float","n/a",0.,"shadow value","Output"]
-
-    Returns
-    -------
-    pypsa.Network
-    """
-    from pypsa.descriptors import Dict
-
-    override_components = None
-    override_component_attrs = None
-
-    if custom_components is not None:
-        override_components = pypsa.components.components.copy()
-        override_component_attrs = Dict(
-            {k: v.copy() for k, v in pypsa.components.component_attrs.items()},
-        )
-        for k, v in custom_components.items():
-            override_components.loc[k] = v["component"]
-            override_component_attrs[k] = pd.DataFrame(
-                columns=["type", "unit", "default", "description", "status"],
-            )
-            for attr, val in v["attributes"].items():
-                override_component_attrs[k].loc[attr] = val
-
-    return pypsa.Network(
-        import_name=import_name,
-        override_components=override_components,
-        override_component_attrs=override_component_attrs,
-    )
-
-
-def pdbcast(v, h):
-    return pd.DataFrame(
-        v.values.reshape((-1, 1)) * h.values,
-        index=v.index,
-        columns=h.index,
-    )
 
 
 def calculate_annuity(n, r):
@@ -327,39 +261,6 @@ def load_costs(tech_costs: str, costs_config: dict | None = None) -> pd.DataFram
     return combined.pivot(index="pypsa-name", columns="parameter", values="value").fillna(0)
 
 
-def load_network_for_plots(fn, tech_costs, config, combine_hydro_ps=True):
-    import pypsa
-    from add_electricity import load_costs, update_transmission_costs
-
-    n = pypsa.Network(fn)
-
-    n.loads["carrier"] = n.loads.bus.map(n.buses.carrier) + " load"
-    n.stores["carrier"] = n.stores.bus.map(n.buses.carrier)
-
-    n.links["carrier"] = n.links.bus0.map(n.buses.carrier) + "-" + n.links.bus1.map(n.buses.carrier)
-    n.lines["carrier"] = "AC line"
-    n.transformers["carrier"] = "AC transformer"
-
-    n.lines["s_nom"] = n.lines["s_nom_min"]
-    n.links["p_nom"] = n.links["p_nom_min"]
-
-    if combine_hydro_ps:
-        n.storage_units.loc[
-            n.storage_units.carrier.isin({"PHS", "hydro"}),
-            "carrier",
-        ] = "hydro+PHS"
-
-    # if the carrier was not set on the heat storage units
-    # bus_carrier = n.storage_units.bus.map(n.buses.carrier)
-    # n.storage_units.loc[bus_carrier == "heat","carrier"] = "water tanks"
-
-    num_years = n.snapshot_weightings.loc[n.investment_periods[0]].objective.sum() / HOURS_PER_YEAR
-    costs = load_costs(tech_costs, config["costs"], config["electricity"], num_years)
-    update_transmission_costs(n, costs)
-
-    return n
-
-
 def is_transport_model(transmission_network):
     match transmission_network:
         case "reeds":
@@ -378,91 +279,7 @@ def update_p_nom_max(n):
     # the installed capacity might exceed the expansion limit.
     # Hence, we update the assumptions.
 
-    n.generators.p_nom_max = n.generators[["p_nom_min", "p_nom_max"]].max(1)
-
-
-def aggregate_p_nom(n):
-    return pd.concat(
-        [
-            n.generators.groupby("carrier").p_nom_opt.sum(),
-            n.storage_units.groupby("carrier").p_nom_opt.sum(),
-            n.links.groupby("carrier").p_nom_opt.sum(),
-            n.loads_t.p.groupby(n.loads.carrier, axis=1).sum().mean(),
-        ],
-    )
-
-
-def aggregate_p(n):
-    return pd.concat(
-        [
-            n.generators_t.p.sum().groupby(n.generators.carrier).sum(),
-            n.storage_units_t.p.sum().groupby(n.storage_units.carrier).sum(),
-            n.stores_t.p.sum().groupby(n.stores.carrier).sum(),
-            -n.loads_t.p.sum().groupby(n.loads.carrier).sum(),
-        ],
-    )
-
-
-def aggregate_e_nom(n):
-    return pd.concat(
-        [
-            (n.storage_units["p_nom_opt"] * n.storage_units["max_hours"]).groupby(n.storage_units["carrier"]).sum(),
-            n.stores["e_nom_opt"].groupby(n.stores.carrier).sum(),
-        ],
-    )
-
-
-def aggregate_p_curtailed(n):
-    return pd.concat(
-        [
-            (
-                (n.generators_t.p_max_pu.sum().multiply(n.generators.p_nom_opt) - n.generators_t.p.sum())
-                .groupby(n.generators.carrier)
-                .sum()
-            ),
-            ((n.storage_units_t.inflow.sum() - n.storage_units_t.p.sum()).groupby(n.storage_units.carrier).sum()),
-        ],
-    )
-
-
-def aggregate_costs(n, flatten=False, opts=None, existing_only=False):
-    components = dict(
-        Link=("p_nom", "p0"),
-        Generator=("p_nom", "p"),
-        StorageUnit=("p_nom", "p"),
-        Store=("e_nom", "p"),
-        Line=("s_nom", None),
-        Transformer=("s_nom", None),
-    )
-
-    costs = {}
-    for c, (p_nom, p_attr) in zip(
-        n.iterate_components(components.keys(), skip_empty=False),
-        components.values(),
-    ):
-        if c.df.empty:
-            continue
-        if not existing_only:
-            p_nom += "_opt"
-        costs[(c.list_name, "capital")] = (c.df[p_nom] * c.df.capital_cost).groupby(c.df.carrier).sum()
-        if p_attr is not None:
-            p = c.pnl[p_attr].sum()
-            if c.name == "StorageUnit":
-                p = p.loc[p > 0]
-            costs[(c.list_name, "marginal")] = (p * c.df.marginal_cost).groupby(c.df.carrier).sum()
-    costs = pd.concat(costs)
-
-    if flatten:
-        assert opts is not None
-        conv_techs = opts["conv_techs"]
-
-        costs = costs.reset_index(level=0, drop=True)
-        costs = costs["capital"].add(
-            costs["marginal"].rename({t: t + " marginal" for t in conv_techs}),
-            fill_value=0.0,
-        )
-
-    return costs
+    n.generators.p_nom_max = n.generators[["p_nom_min", "p_nom_max"]].max(axis=1)
 
 
 def progress_retrieve(url, file):
@@ -476,23 +293,6 @@ def progress_retrieve(url, file):
         pbar.update(int(count * block_size * 100 / total_size))
 
     urllib.request.urlretrieve(url, file, reporthook=dlProgress)
-
-
-def get_aggregation_strategies(aggregation_strategies):
-    # default aggregation strategies that cannot be defined in .yaml format must be specified within
-    # the function, otherwise (when defaults are passed in the function's definition) they get lost
-    # when custom values are specified in the config.
-
-    import numpy as np
-    from pypsa.clustering.spatial import _make_consense
-
-    bus_strategies = dict(country=_make_consense("Bus", "country"))
-    bus_strategies.update(aggregation_strategies.get("buses", {}))
-
-    generator_strategies = {"build_year": lambda x: 0, "lifetime": lambda x: np.inf}
-    generator_strategies.update(aggregation_strategies.get("generators", {}))
-
-    return bus_strategies, generator_strategies
 
 
 def export_network_for_gis_mapping(n, output_path):
@@ -542,7 +342,7 @@ def mock_snakemake(rulename, **wildcards):
 
     import snakemake as sm
     from packaging.version import Version, parse
-    from pypsa.descriptors import Dict
+    from pypsa.definitions.structures import Dict
     from snakemake.script import Snakemake
 
     script_dir = Path(__file__).parent.resolve()
@@ -996,4 +796,4 @@ def get_multiindex_snapshots(
         sns = sns.append(
             get_snapshots(sns_config).map(lambda x: x.replace(year=year)),
         )
-    return pd.MultiIndex.from_arrays([sns.year, sns])
+    return pd.MultiIndex.from_arrays([sns.year, sns], names=["period", "timestep"])

@@ -33,7 +33,7 @@ HPC: edit `config/config.cluster.yaml` (account/partition/email) and `workflow/r
   ```
 - `conftest.py` provides a `base_network` PyPSA fixture (3-bus network with wind/solar/gas) — extend it rather than building fresh networks per test.
 - Pre-commit hooks (snakefmt, ruff, ruff format, blackdoc, pyupgrade, pretty-format-yaml, add-trailing-comma, jupyter-notebook-cleanup) run on `git commit`. Hooks modify files on first run; re-stage and re-commit. **Do not bypass with `--no-verify`.**
-- `.github/workflows/main.yml` runs `./test.sh` which **does not exist in the repo** — CI's "Test snakemake workflow" step is effectively a no-op today. Treat green CI accordingly.
+- `.github/workflows/main.yml` runs two jobs on every push/PR to `master`/`develop`/`v1-epic`: `fast-tests` (`pytest -m fast`, Tier A static checks) and `e2e-tests` (`pytest -m integration`, Tier B build under micromamba with cached `data/` and `cutouts/`). A scheduled Tuesday job (`upstream-regression`) re-runs the whole suite against upstream PyPSA/atlite/linopy master.
 
 ## Architecture: the DAG and the resources/ layout
 
@@ -103,5 +103,5 @@ Defined in `workflow/Snakefile`:
 
 ## Environment
 
-- `pypsa==0.30.2`, `atlite==0.3.0`, `linopy==0.3.14`, Python `>=3.11, <3.12` (conda) / `>=3.11` (uv). Dependency pins in both `pyproject.toml` and `workflow/envs/environment.yaml` — keep them in sync if you bump.
+- `pypsa==1.3.0`, `linopy==0.9.1`, `pandas==3.0.5`, `xarray==2026.7.0`, `geopandas==1.1.4`, `atlite==0.3.0`, numpy held at `1.26.0` (rasterio/atlite ABI), Python `>=3.11, <3.12` (conda) / `>=3.11` (uv). Dependency pins in both `pyproject.toml` and `workflow/envs/environment.yaml` — keep them in sync if you bump. Migration notes: `docs/pypsa-v1-migration.md`.
 - Gurobi is the default ILP scheduler. `highspy` is in deps as a fallback solver.
